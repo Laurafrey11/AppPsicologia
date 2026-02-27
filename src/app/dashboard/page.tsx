@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 export default function DashboardPage() {
   return (
     <div className="flex items-center justify-center h-full text-gray-400 dark:text-slate-600">
