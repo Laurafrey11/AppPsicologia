@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { SessionCard } from "@/components/SessionCard"
 import { NewSessionModal } from "@/components/NewSessionModal"
+import { ImportSessionsModal } from "@/components/ImportSessionsModal"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
 import { WaveText } from "@/components/ui/wave-text"
@@ -101,6 +102,7 @@ export default function PatientDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
+  const [showImport, setShowImport] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -226,6 +228,12 @@ export default function PatientDetailPage() {
           <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
             Sesiones ({sessions.length})
           </h2>
+          <button
+            onClick={() => setShowImport(true)}
+            className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
+          >
+            Importar históricas
+          </button>
         </div>
 
         {/* Search */}
@@ -363,6 +371,15 @@ export default function PatientDetailPage() {
           token={token}
           onClose={() => setShowNewSession(false)}
           onCreated={load}
+        />
+      )}
+
+      {showImport && token && (
+        <ImportSessionsModal
+          patientId={id}
+          token={token}
+          onClose={() => setShowImport(false)}
+          onImported={load}
         />
       )}
     </div>
