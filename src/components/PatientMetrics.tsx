@@ -2,6 +2,7 @@
 
 import { GlowCard } from "@/components/ui/spotlight-card"
 import { Spotlight } from "@/components/ui/spotlight"
+import { TextScramble } from "@/components/ui/text-scramble"
 
 interface AiSummary {
   sentimiento_predominante?: string
@@ -9,10 +10,14 @@ interface AiSummary {
   mecanismo_defensa?: string
   tematica_predominante?: string
   dominant_emotions?: string[]
+  clinical_hypotheses?: string[]
+  points_to_explore?: string[]
 }
 
 interface Session {
   ai_summary: string | null
+  created_at: string
+  session_date: string | null
 }
 
 function parseAiSummary(raw: string | null): AiSummary | null {
@@ -23,10 +28,60 @@ function parseAiSummary(raw: string | null): AiSummary | null {
 function mostFrequent(values: string[]): string | null {
   if (values.length === 0) return null
   const freq: Record<string, number> = {}
-  for (const v of values) {
-    if (v) freq[v] = (freq[v] ?? 0) + 1
-  }
+  for (const v of values) { if (v) freq[v] = (freq[v] ?? 0) + 1 }
   return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}
+
+function topN(values: string[], n: number): string[] {
+  if (values.length === 0) return []
+  const freq: Record<string, number> = {}
+  for (const v of values) { if (v) freq[v] = (freq[v] ?? 0) + 1 }
+  return Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([v]) => v)
+}
+
+function calcAdherence(sessions: Session[]): {
+  label: string
+  color: string
+  avgDays: number | null
+  daysSinceLast: number | null
+  total: number
+} {
+  const total = sessions.length
+  if (total === 0) return { label: "Sin sesiones", color: "text-gray-400 dark:text-slate-500", avgDays: null, daysSinceLast: null, total: 0 }
+
+  const dates = sessions
+    .map(s => new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at))
+    .sort((a, b) => a.getTime() - b.getTime())
+
+  const lastDate = dates[dates.length - 1]
+  const daysSinceLast = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
+
+  let avgDays: number | null = null
+  if (dates.length >= 2) {
+    const gaps: number[] = []
+    for (let i = 1; i < dates.length; i++) {
+      gaps.push((dates[i].getTime() - dates[i - 1].getTime()) / (1000 * 60 * 60 * 24))
+    }
+    avgDays = gaps.reduce((a, b) => a + b, 0) / gaps.length
+  }
+
+  let label: string
+  let color: string
+  if (daysSinceLast > 60 || (avgDays !== null && avgDays > 30)) {
+    label = "Baja"
+    color = "text-red-600 dark:text-red-400"
+  } else if (daysSinceLast > 30 || (avgDays !== null && avgDays > 14)) {
+    label = "Regular"
+    color = "text-amber-600 dark:text-amber-400"
+  } else {
+    label = "Alta"
+    color = "text-emerald-600 dark:text-emerald-400"
+  }
+
+  return { label, color, avgDays, daysSinceLast, total }
 }
 
 interface MetricCardProps {
@@ -39,13 +94,8 @@ interface MetricCardProps {
 function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
   return (
     <>
-      {/* Light mode: GlowCard */}
       <div className="block dark:hidden">
-        <GlowCard
-          customSize
-          glowColor={glowColor}
-          className="w-full h-28 flex flex-col justify-between bg-white/80"
-        >
+        <GlowCard customSize glowColor={glowColor} className="w-full h-28 flex flex-col justify-between bg-white/80">
           <div className="relative z-10 flex flex-col justify-between h-full p-1">
             <span className="text-lg">{emoji}</span>
             <div>
@@ -58,7 +108,6 @@ function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
         </GlowCard>
       </div>
 
-      {/* Dark mode: card with Spotlight */}
       <div className="hidden dark:block">
         <div className="relative w-full h-28 rounded-2xl border border-slate-700 bg-slate-800 p-4 flex flex-col justify-between overflow-hidden">
           <Spotlight
@@ -78,33 +127,126 @@ function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
   )
 }
 
-export function PatientMetrics({ sessions }: { sessions: Session[] }) {
+export function PatientMetrics({
+  sessions,
+  caseSummary,
+}: {
+  sessions: Session[]
+  caseSummary?: string | null
+}) {
   const summaries = sessions.map(s => parseAiSummary(s.ai_summary)).filter((s): s is AiSummary => s !== null)
+  const adherence = calcAdherence(sessions)
 
-  if (summaries.length === 0) return null
+  if (sessions.length === 0 && !caseSummary) return null
 
   const sentimientos = summaries.map(s => s.sentimiento_predominante ?? "").filter(Boolean)
   const pensamientos = summaries.map(s => s.pensamiento_predominante ?? "").filter(Boolean)
   const mecanismos = summaries.map(s => s.mecanismo_defensa ?? "").filter(Boolean)
   const tematicas = summaries.map(s => s.tematica_predominante ?? "").filter(Boolean)
 
+  const allHypotheses = summaries.flatMap(s => s.clinical_hypotheses ?? [])
+  const allPoints = summaries.flatMap(s => s.points_to_explore ?? [])
+  const topHypotheses = topN(allHypotheses, 4)
+  const topPoints = topN(allPoints, 4)
+
   const metrics: MetricCardProps[] = [
-    { label: "Sentimiento predominante", value: mostFrequent(sentimientos), glowColor: "orange", emoji: "💛" },
-    { label: "Pensamiento predominante", value: mostFrequent(pensamientos), glowColor: "purple", emoji: "🧠" },
+    { label: "Sentimiento", value: mostFrequent(sentimientos), glowColor: "orange", emoji: "💛" },
+    { label: "Pensamiento", value: mostFrequent(pensamientos), glowColor: "purple", emoji: "🧠" },
     { label: "Mecanismo de defensa", value: mostFrequent(mecanismos), glowColor: "blue", emoji: "🛡️" },
-    { label: "Temática predominante", value: mostFrequent(tematicas), glowColor: "green", emoji: "🗂️" },
+    { label: "Temática", value: mostFrequent(tematicas), glowColor: "green", emoji: "🗂️" },
   ]
 
   return (
-    <section className="mb-6">
-      <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
-        Métricas clínicas ({summaries.length} sesión{summaries.length !== 1 ? "es" : ""} analizadas)
+    <section className="mb-6 space-y-4">
+      <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+        Métricas clínicas · {sessions.length} sesión{sessions.length !== 1 ? "es" : ""}
       </h2>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {metrics.map((m) => (
-          <MetricCard key={m.label} {...m} />
-        ))}
-      </div>
+
+      {/* Case summary */}
+      {caseSummary && (
+        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4">
+          <TextScramble
+            as="h3"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2"
+            duration={0.7}
+            speed={0.025}
+          >
+            Resumen clínico acumulado
+          </TextScramble>
+          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{caseSummary}</p>
+        </div>
+      )}
+
+      {/* 4 metric chips */}
+      {summaries.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {metrics.map((m) => <MetricCard key={m.label} {...m} />)}
+        </div>
+      )}
+
+      {/* Adherence */}
+      {sessions.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+          <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+            Adherencia a terapia
+          </p>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <p className={`text-lg font-bold ${adherence.color}`}>{adherence.label}</p>
+            <div className="flex gap-5">
+              {adherence.avgDays !== null && (
+                <div className="text-right">
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Promedio entre sesiones</p>
+                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">{Math.round(adherence.avgDays)} días</p>
+                </div>
+              )}
+              {adherence.daysSinceLast !== null && (
+                <div className="text-right">
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Última sesión</p>
+                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">hace {adherence.daysSinceLast} días</p>
+                </div>
+              )}
+              <div className="text-right">
+                <p className="text-xs text-gray-400 dark:text-slate-500">Total sesiones</p>
+                <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">{adherence.total}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hypotheses and recommendations */}
+      {(topHypotheses.length > 0 || topPoints.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {topHypotheses.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+              <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+                Hipótesis clínicas
+              </p>
+              <ul className="space-y-1.5">
+                {topHypotheses.map((h, i) => (
+                  <li key={i} className="text-sm text-gray-700 dark:text-slate-300 flex gap-2">
+                    <span className="text-gray-400 dark:text-slate-500 flex-shrink-0">·</span>{h}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {topPoints.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+              <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
+                Puntos a explorar
+              </p>
+              <ul className="space-y-1.5">
+                {topPoints.map((p, i) => (
+                  <li key={i} className="text-sm text-gray-700 dark:text-slate-300 flex gap-2">
+                    <span className="text-blue-400 flex-shrink-0">→</span>{p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }

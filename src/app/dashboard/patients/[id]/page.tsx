@@ -10,7 +10,6 @@ import { NewSessionModal } from "@/components/NewSessionModal"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
 import { WaveText } from "@/components/ui/wave-text"
-import { TextScramble } from "@/components/ui/text-scramble"
 import { Search } from "lucide-react"
 
 interface Patient {
@@ -210,6 +209,9 @@ export default function PatientDetailPage() {
         </button>
       </div>
 
+      {/* Patient Metrics — clinical overview above reason */}
+      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} />
+
       {/* Reason */}
       <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
         <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
@@ -217,24 +219,6 @@ export default function PatientDetailPage() {
         </h2>
         <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{patient.reason}</p>
       </section>
-
-      {/* Case summary — AI overview */}
-      {patient.case_summary && (
-        <section className="mb-6 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-5">
-          <TextScramble
-            as="h2"
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2"
-            duration={0.7}
-            speed={0.025}
-          >
-            Resumen clínico acumulado
-          </TextScramble>
-          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{patient.case_summary}</p>
-        </section>
-      )}
-
-      {/* Patient Metrics */}
-      <PatientMetrics sessions={sessions} />
 
       {/* Sessions */}
       <section className="mb-8">

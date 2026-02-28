@@ -50,12 +50,28 @@ export type InsertSessionData = {
 }
 
 export async function insertSession(data: InsertSessionData): Promise<Session> {
+  const { session_date, ...coreData } = data
+  const payload = session_date != null ? { ...coreData, session_date } : coreData
+
   const { data: session, error } = await supabaseAdmin
     .from("sessions")
-    .insert(data)
+    .insert(payload)
     .select()
     .single()
-  if (error) throw new Error(error.message)
+
+  if (error) {
+    // Fallback: if session_date column doesn't exist yet, retry without it
+    if (session_date != null && error.message.toLowerCase().includes("session_date")) {
+      const { data: session2, error: error2 } = await supabaseAdmin
+        .from("sessions")
+        .insert(coreData)
+        .select()
+        .single()
+      if (error2) throw new Error(error2.message)
+      return { ...session2, session_date: null }
+    }
+    throw new Error(error.message)
+  }
   return session
 }
 
@@ -173,8 +189,9 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
     .filter((s) => s.paid)
     .reduce((sum, s) => sum + (s.fee ?? 0), 0)
 
+  // Estimate hours worked: audio_duration if recorded, otherwise assume 50 min per session
   const audio_hours_this_month =
-    thisMonthSessions.reduce((sum, s) => sum + (s.audio_duration ?? 0), 0) / 60
+    thisMonthSessions.reduce((sum, s) => sum + (s.audio_duration != null ? s.audio_duration : 50), 0) / 60
 
   // Unpaid overdue (not paid, session_date or created_at >4 days ago)
   const unpaid_overdue = sessions.filter(

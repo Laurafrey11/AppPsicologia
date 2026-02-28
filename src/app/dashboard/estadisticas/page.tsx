@@ -112,7 +112,7 @@ export default function EstadisticasPage() {
         <StatCard
           label="Horas trabajadas"
           value={`${stats.audio_hours_this_month.toFixed(1)}h`}
-          sub="Audio transcripto este mes"
+          sub="Estimado: 50 min por sesión"
           color="text-blue-600 dark:text-blue-400"
         />
         <StatCard

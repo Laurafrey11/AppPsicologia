@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { CheckCircle2, Clock, Loader2 } from "lucide-react"
 import { TextScramble } from "@/components/ui/text-scramble"
 
 interface SessionNotes {
@@ -126,14 +127,21 @@ export function SessionCard({ session, token, onUpdate }: Props) {
           <button
             onClick={handleTogglePaid}
             disabled={togglingPaid}
-            className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 ${
               paid
-                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
-                : "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400"
+                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
+                : "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/70"
             }`}
-            title={paid ? "Marcar como no pagado" : "Marcar como pagado"}
+            title={paid ? "Click para marcar como no pagado" : "Click para marcar como pagado"}
           >
-            {togglingPaid ? "..." : paid ? "✓ Pagado" : "⚠ Sin pagar"}
+            {togglingPaid ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : paid ? (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            ) : (
+              <Clock className="w-3.5 h-3.5" />
+            )}
+            {!togglingPaid && (paid ? "Pagado" : "Sin pagar")}
           </button>
           <svg
             className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform mt-0.5 ${expanded ? "rotate-180" : ""}`}

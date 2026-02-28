@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Text, ArrowDownWideNarrow, CheckCheck, Check, X, Edit3, Mic } from "lucide-react"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { AIVoiceInput } from "@/components/ui/ai-voice-input"
@@ -25,34 +25,34 @@ interface SessionNotes {
   plan_proximo: string
 }
 
-const CHIPS: Partial<Record<keyof SessionNotes, { label: string; replace?: boolean }[]>> = {
+// humor_paciente: all append (no replace) so multiple emotions can be combined
+const CHIPS: Partial<Record<keyof SessionNotes, { label: string }[]>> = {
   motivo_consulta: [
     { label: "Seguimiento" }, { label: "Ansiedad" }, { label: "Duelo" },
     { label: "Crisis" }, { label: "Vínculos" }, { label: "Trabajo" }, { label: "Familia" },
   ],
   humor_paciente: [
-    { label: "Ansioso/a", replace: true }, { label: "Triste", replace: true },
-    { label: "Estable", replace: true }, { label: "Enojado/a", replace: true },
-    { label: "Eufórico/a", replace: true }, { label: "Reflexivo/a", replace: true },
-    { label: "Bloqueado/a", replace: true },
+    { label: "Ansioso/a" }, { label: "Triste" }, { label: "Estable" },
+    { label: "Enojado/a" }, { label: "Eufórico/a" }, { label: "Reflexivo/a" },
+    { label: "Bloqueado/a" }, { label: "Disociado/a" }, { label: "Ambivalente" },
+    { label: "Angustiado/a" }, { label: "Esperanzado/a" },
   ],
   intervenciones: [
     { label: "Escucha activa" }, { label: "Psicoeducación" },
     { label: "Reestructuración cognitiva" }, { label: "Confrontación" },
-    { label: "Silencio terapéutico" },
+    { label: "Silencio terapéutico" }, { label: "Señalamiento" },
   ],
   evolucion: [
-    { label: "Sin cambios", replace: true }, { label: "Mejoría leve", replace: true },
-    { label: "Mejoría", replace: true }, { label: "Recaída", replace: true },
-    { label: "Crisis aguda", replace: true },
+    { label: "Sin cambios" }, { label: "Mejoría leve" },
+    { label: "Mejoría" }, { label: "Recaída" }, { label: "Crisis aguda" },
   ],
 }
 
-const NOTES_FIELDS: { key: keyof SessionNotes; label: string; placeholder: string }[] = [
+const NOTES_FIELDS: { key: keyof SessionNotes; label: string; placeholder: string; replaceOnChip?: boolean }[] = [
   { key: "motivo_consulta", label: "Tema de hoy", placeholder: "¿Por qué consulta el paciente hoy?" },
-  { key: "humor_paciente", label: "Humor del paciente", placeholder: "Estado emocional al llegar..." },
+  { key: "humor_paciente", label: "Humor del paciente", placeholder: "Ej: Ansioso/a, Triste — podés elegir varios" },
   { key: "intervenciones", label: "Intervenciones", placeholder: "Técnicas o intervenciones aplicadas..." },
-  { key: "evolucion", label: "Evolución", placeholder: "¿Cómo evolucionó durante la sesión?" },
+  { key: "evolucion", label: "Evolución", placeholder: "¿Cómo evolucionó durante la sesión?", replaceOnChip: true },
   { key: "hipotesis_clinica", label: "Hipótesis clínica", placeholder: "Hipótesis tentativas sobre la dinámica..." },
   { key: "plan_proximo", label: "Plan próximo encuentro", placeholder: "Objetivos para la próxima sesión..." },
 ]
@@ -82,9 +82,10 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState<AiAction | null>(null)
-  const [aiSuggestionEditable, setAiSuggestionEditable] = useState("")
+  const [aiSuggestion, setAiSuggestion] = useState<string>("")
   const [showAiSuggestion, setShowAiSuggestion] = useState(false)
 
+  const suggestionRef = useRef<HTMLDivElement>(null)
   const { textareaRef, adjustHeight } = useAutoResizeTextarea({ minHeight: 80, maxHeight: 200 })
 
   function authHeaders() {
@@ -119,8 +120,10 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
-      setAiSuggestionEditable(data.result)
+      setAiSuggestion(data.result)
       setShowAiSuggestion(true)
+      // Scroll suggestion into view
+      setTimeout(() => suggestionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50)
     } catch (err: unknown) {
       setError((err as Error).message)
     } finally {
@@ -265,11 +268,49 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             </div>
           </div>
 
+          {/* AI suggestion panel — shown above textarea so it's immediately visible */}
+          {showAiSuggestion && (
+            <div ref={suggestionRef} className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200 dark:border-blue-800">
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Sugerencia IA</span>
+                <span className="text-xs text-blue-500 dark:text-blue-500 flex items-center gap-1">
+                  <Edit3 className="w-3 h-3" />editá antes de aceptar
+                </span>
+              </div>
+              <textarea
+                value={aiSuggestion}
+                onChange={(e) => setAiSuggestion(e.target.value)}
+                className="w-full bg-transparent text-sm text-gray-800 dark:text-slate-200 px-3 py-3 resize-none focus:outline-none leading-relaxed"
+                rows={5}
+              />
+              <div className="flex gap-2 px-3 pb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRawText(aiSuggestion)
+                    setShowAiSuggestion(false)
+                    setTimeout(() => adjustHeight(), 0)
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  <Check className="w-3 h-3" />Aceptar y reemplazar notas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAiSuggestion(false)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-slate-700 text-gray-600 dark:text-slate-400 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-3 h-3" />Descartar
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Free notes + AI assist */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Notas libres</label>
-              <span className="text-xs text-gray-400 dark:text-slate-500">opcional</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500">opcional · usá IA para mejorarlas</span>
             </div>
             <div className="relative rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50 focus-within:border-blue-400 dark:focus-within:border-blue-600 transition-colors">
               <textarea
@@ -289,53 +330,19 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                     type="button"
                     disabled={isUploading || aiLoading !== null}
                     onClick={() => handleAiAction(action)}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border transition-colors disabled:opacity-40 ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors disabled:opacity-40 ${
                       aiLoading === action
                         ? "border-blue-400 bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400"
-                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:border-gray-300"
+                        : "border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 hover:border-blue-300 hover:text-blue-600 dark:hover:text-blue-400"
                     }`}
                   >
                     <Icon className="w-3 h-3" />
-                    {aiLoading === action ? "..." : label}
+                    {aiLoading === action ? "Procesando..." : label}
                   </button>
                 ))}
               </div>
             </div>
           </div>
-
-          {/* AI suggestion */}
-          {showAiSuggestion && (
-            <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200 dark:border-blue-800">
-                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Sugerencia IA</span>
-                <span className="text-xs text-blue-500 dark:text-blue-500 flex items-center gap-1">
-                  <Edit3 className="w-3 h-3" />editá antes de aceptar
-                </span>
-              </div>
-              <textarea
-                value={aiSuggestionEditable}
-                onChange={(e) => setAiSuggestionEditable(e.target.value)}
-                className="w-full bg-transparent text-sm text-gray-800 dark:text-slate-200 px-3 py-3 resize-none focus:outline-none leading-relaxed"
-                rows={4}
-              />
-              <div className="flex gap-2 px-3 pb-3">
-                <button
-                  type="button"
-                  onClick={() => { setRawText(aiSuggestionEditable); setShowAiSuggestion(false); setTimeout(() => adjustHeight(), 0) }}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                >
-                  <Check className="w-3 h-3" />Aceptar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAiSuggestion(false)}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-slate-700 text-gray-600 dark:text-slate-400 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <X className="w-3 h-3" />Descartar
-                </button>
-              </div>
-            </div>
-          )}
 
           {/* Voice recording — psychologist's own voice notes */}
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50 p-3">
@@ -372,7 +379,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
               Estructura clínica (opcional)
             </p>
-            {NOTES_FIELDS.map(({ key, label, placeholder }) => (
+            {NOTES_FIELDS.map(({ key, label, placeholder, replaceOnChip }) => (
               <div key={key}>
                 <label className="block text-xs font-medium text-gray-500 dark:text-slate-400 mb-1">{label}</label>
                 <textarea
@@ -386,17 +393,24 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 />
                 {CHIPS[key] && (
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {CHIPS[key]!.map(({ label: chipLabel, replace }) => (
-                      <button
-                        key={chipLabel}
-                        type="button"
-                        onClick={() => applyChip(key, chipLabel, replace ?? false)}
-                        disabled={isUploading}
-                        className="text-xs px-2.5 py-0.5 rounded-full border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:border-blue-300 hover:text-blue-600 dark:hover:border-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
-                      >
-                        {chipLabel}
-                      </button>
-                    ))}
+                    {CHIPS[key]!.map(({ label: chipLabel }) => {
+                      const isSelected = sessionNotes[key].includes(chipLabel)
+                      return (
+                        <button
+                          key={chipLabel}
+                          type="button"
+                          onClick={() => applyChip(key, chipLabel, replaceOnChip ?? false)}
+                          disabled={isUploading}
+                          className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
+                            isSelected
+                              ? "border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400"
+                              : "border-gray-200 dark:border-slate-700 text-gray-500 dark:text-slate-400 hover:border-blue-300 hover:text-blue-600 dark:hover:border-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                          }`}
+                        >
+                          {chipLabel}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
