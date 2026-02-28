@@ -79,6 +79,7 @@ export function Sidebar() {
         {[
           { href: "/dashboard/estadisticas", label: "Dashboard", icon: "📊" },
           { href: "/dashboard/supervision", label: "Supervisión IA", icon: "🔬" },
+          { href: "/dashboard/perfil", label: "Perfil", icon: "⚙️" },
         ].map(({ href, label, icon }) => {
           const active = pathname === href
           return (

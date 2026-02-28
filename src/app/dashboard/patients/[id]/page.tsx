@@ -103,10 +103,18 @@ export default function PatientDetailPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
   const [showImport, setShowImport] = useState(false)
+  const [schedulingLink, setSchedulingLink] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setToken(data.session?.access_token ?? null)
+      const tok = data.session?.access_token ?? null
+      setToken(tok)
+      if (tok) {
+        fetch("/api/profile", { headers: { Authorization: `Bearer ${tok}` } })
+          .then((r) => r.json())
+          .then((d) => setSchedulingLink(d.scheduling_link ?? null))
+          .catch(() => {})
+      }
     })
   }, [supabase])
 
@@ -202,13 +210,25 @@ export default function PatientDetailPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowNewSession(true)}
-          className="group relative overflow-hidden bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors flex-shrink-0"
-        >
-          <PixelCanvas gap={6} speed={70} colors={["#ffffff", "#bfdbfe", "#93c5fd"]} noFocus />
-          <span className="relative z-10">+ Nueva sesión</span>
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {schedulingLink && (
+            <a
+              href={schedulingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium px-4 py-2 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors"
+            >
+              📅 Agendar
+            </a>
+          )}
+          <button
+            onClick={() => setShowNewSession(true)}
+            className="group relative overflow-hidden bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <PixelCanvas gap={6} speed={70} colors={["#ffffff", "#bfdbfe", "#93c5fd"]} noFocus />
+            <span className="relative z-10">+ Nueva sesión</span>
+          </button>
+        </div>
       </div>
 
       {/* Patient Metrics — clinical overview above reason */}
