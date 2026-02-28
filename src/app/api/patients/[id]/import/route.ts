@@ -93,6 +93,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "El archivo no contiene filas de datos" }, { status: 400 })
     }
 
+    // Hard cap: prevent mass import abuse regardless of plan limits
+    const MAX_IMPORT_ROWS = 200
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return NextResponse.json(
+        { error: `Máximo ${MAX_IMPORT_ROWS} sesiones por importación. El archivo tiene ${rows.length} filas.` },
+        { status: 400 }
+      )
+    }
+
     // Check session limit before importing
     const [limits, currentCount] = await Promise.all([
       getOrCreateLimits(user.id),

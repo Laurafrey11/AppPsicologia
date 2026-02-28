@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { checkAudioLimit } from "@/lib/services/limits.service"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 
@@ -30,6 +31,9 @@ export async function GET(req: Request) {
         { status: 400 }
       )
     }
+
+    // Pre-check: ensure audio quota remains before allowing an upload
+    await checkAudioLimit(user.id, 1)
 
     // Path: psychologistId/timestamp-random.ext — scoped by psychologist
     const timestamp = Date.now()

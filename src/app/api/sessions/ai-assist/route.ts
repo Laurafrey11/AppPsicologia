@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
+import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 import OpenAI from "openai"
@@ -35,7 +36,10 @@ Respondé SOLO con el texto corregido, sin introducción ni cierre.`,
  */
 export async function POST(req: Request) {
   try {
-    await getAuthUser(req)
+    const user = await getAuthUser(req)
+
+    // Verify psychologist has an active plan before calling OpenAI
+    await getOrCreateLimits(user.id)
 
     const body = await req.json()
     const { text, action } = body as { text: string; action: string }
