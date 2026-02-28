@@ -11,6 +11,7 @@ export const updatePatientSchema = z.object({
   age: z.number().int().min(1).max(120).optional(),
   reason: z.string().min(5).max(1000).optional(),
   is_active: z.boolean().optional(),
+  recording_consent_at: z.string().nullable().optional(),
 })
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>

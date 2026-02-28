@@ -9,6 +9,7 @@ export type Patient = {
   reason: string
   case_summary: string | null
   is_active: boolean
+  recording_consent_at: string | null
   created_at: string
 }
 
@@ -71,10 +72,30 @@ export async function countActivePatients(psychologistId: string): Promise<numbe
   return count ?? 0
 }
 
+export async function deletePatient(
+  id: string,
+  psychologistId: string
+): Promise<void> {
+  // Delete sessions first (in case FK cascade is not configured)
+  await supabaseAdmin
+    .from("sessions")
+    .delete()
+    .eq("patient_id", id)
+    .eq("psychologist_id", psychologistId)
+
+  const { error } = await supabaseAdmin
+    .from("patients")
+    .delete()
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+
+  if (error) throw new Error(error.message)
+}
+
 export async function updatePatient(
   id: string,
   psychologistId: string,
-  data: UpdatePatientInput & { case_summary?: string }
+  data: UpdatePatientInput & { case_summary?: string; recording_consent_at?: string | null }
 ): Promise<Patient> {
   const { data: patient, error } = await supabaseAdmin
     .from("patients")

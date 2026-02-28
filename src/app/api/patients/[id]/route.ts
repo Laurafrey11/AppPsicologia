@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
 import { updatePatientSchema } from "@/lib/validators/patient.schema"
-import { getPatient, editPatient, listPatients } from "@/lib/services/patient.service"
+import { getPatient, editPatient, removePatient } from "@/lib/services/patient.service"
 import { listSessions } from "@/lib/services/session.service"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -18,6 +18,22 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   } catch (error: unknown) {
     const err = error as Error
     logger.error("GET /api/patients/[id] failed", { error: err.message, id: params.id })
+    if (error instanceof BaseError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode })
+    }
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+  }
+}
+
+/** DELETE /api/patients/[id] — permanently delete patient and all their sessions */
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const user = await getAuthUser(req)
+    await removePatient(params.id, user.id)
+    return NextResponse.json({ ok: true })
+  } catch (error: unknown) {
+    const err = error as Error
+    logger.error("DELETE /api/patients/[id] failed", { error: err.message, id: params.id })
     if (error instanceof BaseError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode })
     }

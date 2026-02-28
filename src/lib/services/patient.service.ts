@@ -3,6 +3,7 @@ import {
   findActivePatients,
   findPatientById,
   updatePatient,
+  deletePatient,
   type Patient,
 } from "@/lib/repositories/patient.repository"
 import { checkPatientLimit } from "@/lib/services/limits.service"
@@ -52,6 +53,21 @@ export async function getPatient(
     throw new DomainError("Paciente no encontrado")
   }
   return patient
+}
+
+/**
+ * Permanently deletes a patient and all their sessions.
+ * Irreversible — enforces ownership via psychologistId.
+ */
+export async function removePatient(
+  patientId: string,
+  psychologistId: string
+): Promise<void> {
+  logger.info("Deleting patient", { patientId, psychologistId })
+  const existing = await findPatientById(patientId, psychologistId)
+  if (!existing) throw new DomainError("Paciente no encontrado")
+  await deletePatient(patientId, psychologistId)
+  logger.info("Patient deleted", { patientId })
 }
 
 /**

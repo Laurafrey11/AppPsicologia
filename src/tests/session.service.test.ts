@@ -70,6 +70,7 @@ const mockPatient = {
   age: 34,
   reason: "Ansiedad",
   case_summary: null,
+  recording_consent_at: null,
   is_active: true,
   created_at: new Date().toISOString(),
 }

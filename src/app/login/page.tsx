@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { ThemeToggle } from "@/components/ThemeToggle"
@@ -154,6 +155,14 @@ export default function LoginPage() {
               </span>
             </button>
           </form>
+
+          <p className="mt-5 text-center text-xs text-gray-400 dark:text-slate-500">
+            Al usar PsicoApp aceptás nuestro tratamiento de datos conforme a la{" "}
+            <Link href="/privacidad" className="underline hover:text-gray-600 dark:hover:text-slate-300 transition-colors">
+              Política de Privacidad
+            </Link>{" "}
+            · Ley 25.326
+          </p>
         </div>
       </div>
     </div>

@@ -48,6 +48,7 @@ const mockPatient = {
   age: 34,
   reason: "Ansiedad generalizada y dificultades en relaciones interpersonales",
   case_summary: null,
+  recording_consent_at: null,
   is_active: true,
   created_at: new Date().toISOString(),
 }

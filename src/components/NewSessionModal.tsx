@@ -5,9 +5,12 @@ import { Text, ArrowDownWideNarrow, CheckCheck, Check, X, Edit3 } from "lucide-r
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { AIVoiceInput } from "@/components/ui/ai-voice-input"
 import { useAutoResizeTextarea } from "@/components/hooks/use-auto-resize-textarea"
+import { ConsentRecordingModal } from "@/components/ConsentRecordingModal"
 
 interface Props {
   patientId: string
+  patientName: string
+  recordingConsentAt: string | null
   token: string
   onClose: () => void
   onCreated: () => void
@@ -60,10 +63,12 @@ const AI_ACTIONS: { action: AiAction; label: string; Icon: typeof Text; color: s
   },
 ]
 
-export function NewSessionModal({ patientId, token, onClose, onCreated }: Props) {
+export function NewSessionModal({ patientId, patientName, recordingConsentAt, token, onClose, onCreated }: Props) {
   const [tab, setTab] = useState<Tab>("estructura")
   const [rawText, setRawText] = useState("")
   const [fee, setFee] = useState<string>("")
+  const [showConsentModal, setShowConsentModal] = useState(false)
+  const [hasConsent, setHasConsent] = useState(!!recordingConsentAt)
   const [sessionNotes, setSessionNotes] = useState<SessionNotes>({
     motivo_consulta: "",
     hipotesis_clinica: "",
@@ -228,6 +233,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
   }[state]
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 overflow-y-auto py-6">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-lg mx-4 border border-gray-200 dark:border-slate-800">
         {/* Header */}
@@ -431,8 +437,17 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                       Quitar
                     </button>
                   </div>
-                ) : (
+                ) : hasConsent ? (
                   <AIVoiceInput onStop={handleVoiceRecorded} visualizerBars={40} />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowConsentModal(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 text-sm font-medium hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-colors"
+                  >
+                    <span>⚠️</span>
+                    Requiere consentimiento del paciente — Tocar para revisar
+                  </button>
                 )}
               </div>
             </>
@@ -485,5 +500,19 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
         </form>
       </div>
     </div>
+
+    {showConsentModal && (
+      <ConsentRecordingModal
+        patientName={patientName}
+        token={token}
+        patientId={patientId}
+        onConsented={() => {
+          setHasConsent(true)
+          setShowConsentModal(false)
+        }}
+        onDeclined={() => setShowConsentModal(false)}
+      />
+    )}
+    </>
   )
 }
