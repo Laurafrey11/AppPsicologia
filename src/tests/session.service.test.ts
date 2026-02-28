@@ -87,6 +87,7 @@ const mockSession = {
   paid: false,
   paid_at: null,
   fee: null,
+  session_date: null,
   created_at: new Date().toISOString(),
 }
 

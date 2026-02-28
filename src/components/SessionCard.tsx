@@ -1,9 +1,11 @@
 "use client"
 
 import { useState } from "react"
+import { TextScramble } from "@/components/ui/text-scramble"
 
 interface SessionNotes {
   motivo_consulta?: string
+  humor_paciente?: string
   hipotesis_clinica?: string
   intervenciones?: string
   evolucion?: string
@@ -25,6 +27,7 @@ interface AiSummary {
 interface Session {
   id: string
   created_at: string
+  session_date: string | null
   raw_text: string | null
   transcription: string | null
   ai_summary: string | null
@@ -40,9 +43,10 @@ function parseAiSummary(raw: string | null): AiSummary | null {
 }
 
 const NOTE_LABELS: { key: keyof SessionNotes; label: string }[] = [
-  { key: "motivo_consulta", label: "Motivo de consulta" },
+  { key: "motivo_consulta", label: "Tema de hoy" },
+  { key: "humor_paciente", label: "Humor del paciente" },
   { key: "hipotesis_clinica", label: "Hipótesis clínica" },
-  { key: "intervenciones", label: "Intervenciones realizadas" },
+  { key: "intervenciones", label: "Intervenciones" },
   { key: "evolucion", label: "Evolución" },
   { key: "plan_proximo", label: "Plan próximo encuentro" },
 ]
@@ -73,11 +77,15 @@ export function SessionCard({ session, token, onUpdate }: Props) {
     } catch { /* silently fail */ } finally { setTogglingPaid(false) }
   }
 
-  const date = new Date(session.created_at).toLocaleDateString("es-AR", {
-    year: "numeric", month: "long", day: "numeric",
-  })
+  // Use session_date if available, fallback to created_at
+  const displayDate = session.session_date
+    ? new Date(session.session_date + "T12:00:00").toLocaleDateString("es-AR", {
+        year: "numeric", month: "long", day: "numeric",
+      })
+    : new Date(session.created_at).toLocaleDateString("es-AR", {
+        year: "numeric", month: "long", day: "numeric",
+      })
 
-  // Pill badges from AI metrics
   const aiPills = [
     summary?.sentimiento_predominante && { label: summary.sentimiento_predominante, color: "bg-orange-100 dark:bg-orange-950/50 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900" },
     summary?.mecanismo_defensa && { label: summary.mecanismo_defensa, color: "bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900" },
@@ -85,14 +93,14 @@ export function SessionCard({ session, token, onUpdate }: Props) {
   ].filter(Boolean) as { label: string; color: string }[]
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-start justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
       >
         <div className="flex flex-col gap-1.5 flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{date}</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-slate-100">{displayDate}</span>
             {session.audio_duration && (
               <span className="text-xs text-gray-400 dark:text-slate-500 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
                 {Math.round(session.audio_duration)} min audio
@@ -138,7 +146,6 @@ export function SessionCard({ session, token, onUpdate }: Props) {
 
       {expanded && (
         <div className="border-t border-gray-100 dark:border-slate-800 px-5 py-4 space-y-4">
-          {/* Fee */}
           {session.fee != null && session.fee > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Honorario:</span>
@@ -147,7 +154,6 @@ export function SessionCard({ session, token, onUpdate }: Props) {
             </div>
           )}
 
-          {/* Structured clinical notes */}
           {hasNotes && (
             <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-4 space-y-3">
               <h4 className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
@@ -188,11 +194,15 @@ export function SessionCard({ session, token, onUpdate }: Props) {
 
           {summary && (
             <div className="bg-blue-50 dark:bg-blue-950/40 rounded-lg p-4 space-y-3">
-              <h4 className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+              <TextScramble
+                as="h4"
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider"
+                duration={0.6}
+                speed={0.03}
+              >
                 Análisis IA
-              </h4>
+              </TextScramble>
 
-              {/* Key metrics row */}
               <div className="grid grid-cols-2 gap-2">
                 {summary.sentimiento_predominante && (
                   <div className="bg-white dark:bg-slate-800 rounded-lg px-3 py-2">

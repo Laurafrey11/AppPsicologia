@@ -2,6 +2,7 @@ import { z } from "zod"
 
 const sessionNotesSchema = z.object({
   motivo_consulta: z.string().max(2000).optional().default(""),
+  humor_paciente: z.string().max(500).optional().default(""),
   hipotesis_clinica: z.string().max(2000).optional().default(""),
   intervenciones: z.string().max(2000).optional().default(""),
   evolucion: z.string().max(2000).optional().default(""),
@@ -14,6 +15,7 @@ export const createSessionSchema = z.object({
   audio_path: z.string().max(500).optional(),
   session_notes: sessionNotesSchema.optional(),
   fee: z.number().min(0).max(1000000).optional().nullable(),
+  session_date: z.string().optional().nullable(),
 })
 
 export type CreateSessionInput = z.infer<typeof createSessionSchema>

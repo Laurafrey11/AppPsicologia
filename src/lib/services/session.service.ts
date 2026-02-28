@@ -61,6 +61,7 @@ export async function createSession(
   const notesText = input.session_notes
     ? [
         input.session_notes.motivo_consulta && `Motivo de consulta: ${input.session_notes.motivo_consulta}`,
+        input.session_notes.humor_paciente && `Humor del paciente: ${input.session_notes.humor_paciente}`,
         input.session_notes.hipotesis_clinica && `Hipótesis clínica: ${input.session_notes.hipotesis_clinica}`,
         input.session_notes.intervenciones && `Intervenciones: ${input.session_notes.intervenciones}`,
         input.session_notes.evolucion && `Evolución: ${input.session_notes.evolucion}`,
@@ -79,6 +80,7 @@ export async function createSession(
   const sessionNotes: SessionNotes | null = input.session_notes
     ? {
         motivo_consulta: input.session_notes.motivo_consulta ?? "",
+        humor_paciente: input.session_notes.humor_paciente ?? "",
         hipotesis_clinica: input.session_notes.hipotesis_clinica ?? "",
         intervenciones: input.session_notes.intervenciones ?? "",
         evolucion: input.session_notes.evolucion ?? "",
@@ -95,6 +97,7 @@ export async function createSession(
     audio_duration: audioDurationMinutes > 0 ? Math.round(audioDurationMinutes) : null,
     session_notes: sessionNotes,
     fee: input.fee ?? null,
+    session_date: input.session_date ?? null,
   })
 
   await recordSessionUsage(psychologistId, Math.round(audioDurationMinutes))

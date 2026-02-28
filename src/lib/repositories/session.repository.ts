@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin"
 
 export type SessionNotes = {
   motivo_consulta: string
+  humor_paciente: string
   hipotesis_clinica: string
   intervenciones: string
   evolucion: string
@@ -32,6 +33,7 @@ export type Session = {
   paid: boolean
   paid_at: string | null
   fee: number | null
+  session_date: string | null
   created_at: string
 }
 
@@ -44,6 +46,7 @@ export type InsertSessionData = {
   audio_duration: number | null
   session_notes: SessionNotes | null
   fee?: number | null
+  session_date?: string | null
 }
 
 export async function insertSession(data: InsertSessionData): Promise<Session> {
@@ -128,7 +131,7 @@ export type PracticeStats = {
   inactive_patients: number
   sessions_this_month: number
   income_this_month: number
-  unpaid_overdue: Array<{ patient_id: string; created_at: string; fee: number | null }>
+  unpaid_overdue: Array<{ patient_id: string; session_date: string | null; created_at: string; fee: number | null }>
   audio_hours_this_month: number
   avg_treatment_days: number
   low_frequency_patients: Array<{ patient_id: string; last_session: string }>
@@ -143,7 +146,7 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   // All sessions for this psychologist
   const { data: allSessions } = await supabaseAdmin
     .from("sessions")
-    .select("id, patient_id, created_at, paid, fee, audio_duration")
+    .select("id, patient_id, created_at, session_date, paid, fee, audio_duration")
     .eq("psychologist_id", psychologistId)
     .order("created_at", { ascending: true })
 
@@ -173,10 +176,10 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   const audio_hours_this_month =
     thisMonthSessions.reduce((sum, s) => sum + (s.audio_duration ?? 0), 0) / 60
 
-  // Unpaid overdue (not paid, created >4 days ago)
+  // Unpaid overdue (not paid, session_date or created_at >4 days ago)
   const unpaid_overdue = sessions.filter(
-    (s) => !s.paid && new Date(s.created_at) < fourDaysAgo
-  ).map((s) => ({ patient_id: s.patient_id, created_at: s.created_at, fee: s.fee }))
+    (s) => !s.paid && new Date(s.session_date ?? s.created_at) < fourDaysAgo
+  ).map((s) => ({ patient_id: s.patient_id, session_date: s.session_date ?? null, created_at: s.created_at, fee: s.fee }))
 
   // Average treatment duration: for each patient, diff between first and last session
   const patientDurations: Record<string, { first: Date; last: Date }> = {}

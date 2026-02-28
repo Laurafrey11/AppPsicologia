@@ -9,6 +9,9 @@ import { SessionCard } from "@/components/SessionCard"
 import { NewSessionModal } from "@/components/NewSessionModal"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
+import { WaveText } from "@/components/ui/wave-text"
+import { TextScramble } from "@/components/ui/text-scramble"
+import { Search } from "lucide-react"
 
 interface Patient {
   id: string
@@ -22,17 +25,19 @@ interface Patient {
 }
 
 interface SessionNotes {
-  motivo_consulta: string
-  hipotesis_clinica: string
-  intervenciones: string
-  evolucion: string
-  plan_proximo: string
+  motivo_consulta?: string
+  humor_paciente?: string
+  hipotesis_clinica?: string
+  intervenciones?: string
+  evolucion?: string
+  plan_proximo?: string
 }
 
 interface Session {
   id: string
   created_at: string
-  raw_text: string
+  session_date: string | null
+  raw_text: string | null
   transcription: string | null
   ai_summary: string | null
   audio_duration: number | null
@@ -57,6 +62,31 @@ async function apiFetch<T>(path: string, token: string, options?: RequestInit): 
   return res.json()
 }
 
+function filterSessions(sessions: Session[], query: string): Session[] {
+  if (!query.trim()) return sessions
+  const q = query.toLowerCase()
+  return sessions.filter((s) => {
+    const dateStr = s.session_date ?? s.created_at
+    const dateFormatted = new Date(dateStr.includes("T") ? dateStr : dateStr + "T12:00:00")
+      .toLocaleDateString("es-AR", { year: "numeric", month: "long", day: "numeric" })
+      .toLowerCase()
+    const notes = s.session_notes
+      ? Object.values(s.session_notes).join(" ").toLowerCase()
+      : ""
+    const aiText = s.ai_summary?.toLowerCase() ?? ""
+    const rawText = (s.raw_text ?? "").toLowerCase()
+    const transcription = (s.transcription ?? "").toLowerCase()
+    return (
+      dateFormatted.includes(q) ||
+      (s.session_date ?? "").includes(q) ||
+      notes.includes(q) ||
+      aiText.includes(q) ||
+      rawText.includes(q) ||
+      transcription.includes(q)
+    )
+  })
+}
+
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const supabase = createSupabaseBrowserClient()
@@ -71,6 +101,7 @@ export default function PatientDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -148,13 +179,17 @@ export default function PatientDetailPage() {
     </div>
   )
 
+  const filteredSessions = filterSessions(sessions, searchQuery)
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-6">
       {/* Patient Header */}
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{patient.name}</h1>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+              <WaveText text={patient.name} />
+            </h1>
             {!patient.is_active && (
               <span className="text-xs bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 px-2 py-0.5 rounded-full border border-gray-200 dark:border-slate-700">
                 Inactivo
@@ -183,12 +218,17 @@ export default function PatientDetailPage() {
         <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{patient.reason}</p>
       </section>
 
-      {/* Case summary */}
+      {/* Case summary — AI overview */}
       {patient.case_summary && (
         <section className="mb-6 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-5">
-          <h2 className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2">
+          <TextScramble
+            as="h2"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2"
+            duration={0.7}
+            speed={0.025}
+          >
             Resumen clínico acumulado
-          </h2>
+          </TextScramble>
           <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{patient.case_summary}</p>
         </section>
       )}
@@ -198,16 +238,37 @@ export default function PatientDetailPage() {
 
       {/* Sessions */}
       <section className="mb-8">
-        <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
-          Sesiones ({sessions.length})
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+            Sesiones ({sessions.length})
+          </h2>
+        </div>
+
+        {/* Search */}
+        {sessions.length > 2 && (
+          <div className="relative mb-3">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por fecha, tema, notas..."
+              className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors"
+            />
+          </div>
+        )}
+
         {sessions.length === 0 ? (
           <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">
             No hay sesiones aún. Creá la primera sesión con el botón de arriba.
           </div>
+        ) : filteredSessions.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 dark:text-slate-500 text-sm">
+            No se encontraron sesiones con esa búsqueda.
+          </div>
         ) : (
           <div className="space-y-3">
-            {sessions.map((s) => (
+            {filteredSessions.map((s) => (
               <SessionCard key={s.id} session={s} token={token!} onUpdate={load} />
             ))}
           </div>
@@ -219,25 +280,6 @@ export default function PatientDetailPage() {
         <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
           Privacidad y gestión de datos
         </h2>
-
-        {/* Consent status */}
-        <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-slate-800">
-          <div>
-            <p className="text-sm font-medium text-gray-700 dark:text-slate-300">Consentimiento para grabación</p>
-            <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-              {patient.recording_consent_at
-                ? `Otorgado el ${new Date(patient.recording_consent_at).toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" })}`
-                : "No registrado · Se solicitará al grabar"}
-            </p>
-          </div>
-          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-            patient.recording_consent_at
-              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400"
-              : "bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400"
-          }`}>
-            {patient.recording_consent_at ? "✓ Dado" : "Pendiente"}
-          </span>
-        </div>
 
         {/* Export */}
         <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-slate-800">
@@ -334,8 +376,6 @@ export default function PatientDetailPage() {
       {showNewSession && token && (
         <NewSessionModal
           patientId={id}
-          patientName={patient.name}
-          recordingConsentAt={patient.recording_consent_at}
           token={token}
           onClose={() => setShowNewSession(false)}
           onCreated={load}

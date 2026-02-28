@@ -7,6 +7,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 
 interface OverdueSession {
   patient_id: string
+  session_date: string | null
   created_at: string
   fee: number | null
 }
@@ -142,20 +143,23 @@ export default function EstadisticasPage() {
           <div className="space-y-2">
 
             {/* Payment reminders */}
-            {stats.unpaid_overdue.map((s, i) => (
-              <div key={i} className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
-                <span className="text-amber-500 mt-0.5">⚠</span>
-                <div>
-                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                    Sesión sin pagar hace {daysSince(s.created_at)} días
-                  </p>
-                  <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
-                    {new Date(s.created_at).toLocaleDateString("es-AR", { day: "numeric", month: "long" })}
-                    {s.fee ? ` · $${s.fee.toLocaleString("es-AR")}` : ""}
-                  </p>
+            {stats.unpaid_overdue.map((s, i) => {
+              const refDate = s.session_date ?? s.created_at
+              return (
+                <div key={i} className="flex items-start gap-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl px-4 py-3">
+                  <span className="text-amber-500 mt-0.5">⚠</span>
+                  <div>
+                    <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                      Sesión sin pagar hace {daysSince(refDate)} días
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5">
+                      {new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at).toLocaleDateString("es-AR", { day: "numeric", month: "long" })}
+                      {s.fee ? ` · $${s.fee.toLocaleString("es-AR")}` : ""}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
             {/* Low frequency patients */}
             {stats.low_frequency_patients.map((p, i) => (
