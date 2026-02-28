@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic"
 
 import { useEffect, useState } from "react"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
+import { GlowCard } from "@/components/ui/spotlight-card"
+import { Spotlight } from "@/components/ui/spotlight"
 
 interface OverdueSession {
   patient_id: string
@@ -35,11 +37,27 @@ function StatCard({ label, value, sub, color }: {
   color?: string
 }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-      <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${color ?? "text-gray-900 dark:text-slate-100"}`}>{value}</p>
-      {sub && <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{sub}</p>}
-    </div>
+    <>
+      {/* Light mode: GlowCard */}
+      <div className="block dark:hidden">
+        <GlowCard customSize glowColor="blue" className="w-full p-5 bg-white/80 min-h-[90px] flex flex-col justify-between">
+          <div className="relative z-10 flex flex-col gap-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+            <p className={`text-2xl font-bold ${color ?? "text-gray-900"}`}>{value}</p>
+            {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+          </div>
+        </GlowCard>
+      </div>
+      {/* Dark mode: Spotlight */}
+      <div className="hidden dark:block relative overflow-hidden bg-slate-900 rounded-2xl border border-slate-700 p-5 min-h-[90px] flex flex-col justify-between">
+        <Spotlight className="from-blue-800 via-blue-600 to-blue-400 dark:from-blue-900 dark:via-blue-500 dark:to-blue-900" size={120} />
+        <div className="relative z-10 flex flex-col gap-1">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{label}</p>
+          <p className={`text-2xl font-bold ${color ?? "text-slate-100"}`}>{value}</p>
+          {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+        </div>
+      </div>
+    </>
   )
 }
 

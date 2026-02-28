@@ -190,64 +190,129 @@ export function PatientMetrics({
 
       {/* Adherence */}
       {sessions.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
-          <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-            Adherencia a terapia
-          </p>
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <p className={`text-lg font-bold ${adherence.color}`}>{adherence.label}</p>
-            <div className="flex gap-5">
-              {adherence.avgDays !== null && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Promedio entre sesiones</p>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">{Math.round(adherence.avgDays)} días</p>
+        <>
+          <div className="block dark:hidden">
+            <GlowCard customSize glowColor="green" className="w-full p-4 bg-white/80">
+              <div className="relative z-10">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Adherencia a terapia</p>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <p className={`text-lg font-bold ${adherence.color}`}>{adherence.label}</p>
+                  <div className="flex gap-5">
+                    {adherence.avgDays !== null && (
+                      <div className="text-right">
+                        <p className="text-xs text-gray-400">Promedio entre sesiones</p>
+                        <p className="text-sm font-semibold text-gray-700">{Math.round(adherence.avgDays)} días</p>
+                      </div>
+                    )}
+                    {adherence.daysSinceLast !== null && (
+                      <div className="text-right">
+                        <p className="text-xs text-gray-400">Última sesión</p>
+                        <p className="text-sm font-semibold text-gray-700">hace {adherence.daysSinceLast} días</p>
+                      </div>
+                    )}
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400">Total sesiones</p>
+                      <p className="text-sm font-semibold text-gray-700">{adherence.total}</p>
+                    </div>
+                  </div>
                 </div>
-              )}
-              {adherence.daysSinceLast !== null && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Última sesión</p>
-                  <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">hace {adherence.daysSinceLast} días</p>
+              </div>
+            </GlowCard>
+          </div>
+          <div className="hidden dark:block relative overflow-hidden bg-slate-900 rounded-2xl border border-slate-700 p-4">
+            <Spotlight className="from-emerald-800 via-emerald-600 to-emerald-400 dark:from-emerald-900 dark:via-emerald-600 dark:to-emerald-900" size={120} />
+            <div className="relative z-10">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Adherencia a terapia</p>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <p className={`text-lg font-bold ${adherence.color}`}>{adherence.label}</p>
+                <div className="flex gap-5">
+                  {adherence.avgDays !== null && (
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">Promedio entre sesiones</p>
+                      <p className="text-sm font-semibold text-slate-300">{Math.round(adherence.avgDays)} días</p>
+                    </div>
+                  )}
+                  {adherence.daysSinceLast !== null && (
+                    <div className="text-right">
+                      <p className="text-xs text-slate-500">Última sesión</p>
+                      <p className="text-sm font-semibold text-slate-300">hace {adherence.daysSinceLast} días</p>
+                    </div>
+                  )}
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Total sesiones</p>
+                    <p className="text-sm font-semibold text-slate-300">{adherence.total}</p>
+                  </div>
                 </div>
-              )}
-              <div className="text-right">
-                <p className="text-xs text-gray-400 dark:text-slate-500">Total sesiones</p>
-                <p className="text-sm font-semibold text-gray-700 dark:text-slate-300">{adherence.total}</p>
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Hypotheses and recommendations */}
       {(topHypotheses.length > 0 || topPoints.length > 0) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {topHypotheses.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
-              <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                Hipótesis clínicas
-              </p>
-              <ul className="space-y-1.5">
-                {topHypotheses.map((h, i) => (
-                  <li key={i} className="text-sm text-gray-700 dark:text-slate-300 flex gap-2">
-                    <span className="text-gray-400 dark:text-slate-500 flex-shrink-0">·</span>{h}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <>
+              <div className="block dark:hidden">
+                <GlowCard customSize glowColor="purple" className="w-full p-4 bg-white/80">
+                  <div className="relative z-10">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Hipótesis clínicas</p>
+                    <ul className="space-y-1.5">
+                      {topHypotheses.map((h, i) => (
+                        <li key={i} className="text-sm text-gray-700 flex gap-2">
+                          <span className="text-gray-400 flex-shrink-0">·</span>{h}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </GlowCard>
+              </div>
+              <div className="hidden dark:block relative overflow-hidden bg-slate-900 rounded-2xl border border-slate-700 p-4">
+                <Spotlight className="from-purple-800 via-purple-600 to-purple-400" size={100} />
+                <div className="relative z-10">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Hipótesis clínicas</p>
+                  <ul className="space-y-1.5">
+                    {topHypotheses.map((h, i) => (
+                      <li key={i} className="text-sm text-slate-300 flex gap-2">
+                        <span className="text-slate-500 flex-shrink-0">·</span>{h}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </>
           )}
           {topPoints.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
-              <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                Puntos a explorar
-              </p>
-              <ul className="space-y-1.5">
-                {topPoints.map((p, i) => (
-                  <li key={i} className="text-sm text-gray-700 dark:text-slate-300 flex gap-2">
-                    <span className="text-blue-400 flex-shrink-0">→</span>{p}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <>
+              <div className="block dark:hidden">
+                <GlowCard customSize glowColor="blue" className="w-full p-4 bg-white/80">
+                  <div className="relative z-10">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Puntos a explorar</p>
+                    <ul className="space-y-1.5">
+                      {topPoints.map((p, i) => (
+                        <li key={i} className="text-sm text-gray-700 flex gap-2">
+                          <span className="text-blue-400 flex-shrink-0">→</span>{p}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </GlowCard>
+              </div>
+              <div className="hidden dark:block relative overflow-hidden bg-slate-900 rounded-2xl border border-slate-700 p-4">
+                <Spotlight className="from-blue-800 via-blue-600 to-blue-400" size={100} />
+                <div className="relative z-10">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Puntos a explorar</p>
+                  <ul className="space-y-1.5">
+                    {topPoints.map((p, i) => (
+                      <li key={i} className="text-sm text-slate-300 flex gap-2">
+                        <span className="text-blue-400 flex-shrink-0">→</span>{p}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

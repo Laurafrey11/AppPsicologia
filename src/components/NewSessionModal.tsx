@@ -138,6 +138,8 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
       setAudioBlob(blob)
       setUploadedAudioPath(null)
       setAudioDurationMin(Math.round(duration / 60))
+      // Auto-transcribe immediately on recording stop
+      transcribeBlob(blob)
     }
   }
 
@@ -162,17 +164,15 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
     return storage_path
   }
 
-  async function handleTranscribe() {
-    if (!audioBlob) return
+  async function transcribeBlob(blob: Blob) {
     setError(null)
     setTranscribing(true)
     setProgress(0)
     try {
       setState("uploading")
-      const path = await uploadAudioBlob(audioBlob)
+      const path = await uploadAudioBlob(blob)
       setUploadedAudioPath(path)
       setState("idle")
-      // Transcribe
       const res = await fetch(`/api/sessions/transcribe?path=${encodeURIComponent(path)}`, {
         headers: authHeaders(),
       })
@@ -388,47 +388,28 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
               <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">máx. 4 min</span>
             </div>
             <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">
-              Grabá y luego transcribí. El texto aparece en "Notas libres" para editar.
+              Al terminar de grabar, la IA transcribe automáticamente al campo de notas.
             </p>
-            {uploadedAudioPath ? (
+            {transcribing ? (
+              <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">
+                <Mic className="w-4 h-4 text-blue-500 animate-pulse flex-shrink-0" />
+                <span className="text-sm text-blue-700 dark:text-blue-400 flex-1">
+                  {state === "uploading" ? `Subiendo ${progress}%...` : "Transcribiendo con IA..."}
+                </span>
+              </div>
+            ) : uploadedAudioPath ? (
               <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
                 <span className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
-                  Transcripto · {audioDurationMin} min
+                  Transcripto · {audioDurationMin > 0 ? `${audioDurationMin} min` : "listo"}
                 </span>
                 <button
                   type="button"
-                  onClick={() => { setAudioBlob(null); setUploadedAudioPath(null); setAudioDurationMin(0) }}
+                  onClick={() => { setAudioBlob(null); setUploadedAudioPath(null); setAudioDurationMin(0); setRawText("") }}
                   className="text-xs text-gray-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
                   disabled={isUploading}
                 >
                   Quitar
-                </button>
-              </div>
-            ) : audioBlob ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span className="text-sm text-gray-700 dark:text-slate-300">Audio grabado</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setAudioBlob(null); setAudioDurationMin(0) }}
-                    className="text-xs text-gray-400 hover:text-red-500"
-                    disabled={isUploading || transcribing}
-                  >
-                    Quitar
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleTranscribe}
-                  disabled={isUploading || transcribing}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                  {transcribing ? (state === "uploading" ? `Subiendo ${progress}%...` : "Transcribiendo...") : "Transcribir con IA"}
                 </button>
               </div>
             ) : (
