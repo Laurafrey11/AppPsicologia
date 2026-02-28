@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { CheckCircle2, Clock, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { TextScramble } from "@/components/ui/text-scramble"
+import { TogglePaid } from "@/components/ui/animated-state-icons"
 
 interface SessionNotes {
   motivo_consulta?: string
@@ -127,21 +128,17 @@ export function SessionCard({ session, token, onUpdate }: Props) {
           <button
             onClick={handleTogglePaid}
             disabled={togglingPaid}
-            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-all disabled:opacity-50 ${
-              paid
-                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/70"
-                : "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/70"
-            }`}
+            className="flex items-center gap-1 disabled:opacity-50 transition-opacity"
             title={paid ? "Click para marcar como no pagado" : "Click para marcar como pagado"}
           >
             {togglingPaid ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : paid ? (
-              <CheckCircle2 className="w-3.5 h-3.5" />
+              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
             ) : (
-              <Clock className="w-3.5 h-3.5" />
+              <TogglePaid checked={paid} size={34} />
             )}
-            {!togglingPaid && (paid ? "Pagado" : "Sin pagar")}
+            <span className={`text-xs font-semibold ${paid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+              {paid ? "Pagado" : "Sin pagar"}
+            </span>
           </button>
           <svg
             className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform mt-0.5 ${expanded ? "rotate-180" : ""}`}

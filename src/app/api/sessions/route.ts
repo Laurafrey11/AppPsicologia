@@ -37,6 +37,6 @@ export async function POST(req: Request) {
     if ((error as any)?.name === "ZodError") {
       return NextResponse.json({ error: "Datos inválidos", details: (error as any).errors }, { status: 400 })
     }
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    return NextResponse.json({ error: err.message || "Internal Server Error" }, { status: 500 })
   }
 }

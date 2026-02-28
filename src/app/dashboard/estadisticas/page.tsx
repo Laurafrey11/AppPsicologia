@@ -47,11 +47,22 @@ function daysSince(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24))
 }
 
+const SESSION_DURATION_KEY = "psy_session_duration_min"
+const DEFAULT_DURATION = 50
+
 export default function EstadisticasPage() {
   const supabase = createSupabaseBrowserClient()
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [sessionDuration, setSessionDuration] = useState<number>(DEFAULT_DURATION)
+  const [editingDuration, setEditingDuration] = useState(false)
+  const [durationInput, setDurationInput] = useState("")
+
+  useEffect(() => {
+    const stored = localStorage.getItem(SESSION_DURATION_KEY)
+    if (stored) setSessionDuration(parseInt(stored, 10) || DEFAULT_DURATION)
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -89,6 +100,17 @@ export default function EstadisticasPage() {
     ? Math.round((stats.inactive_patients / totalPatients) * 100)
     : 0
 
+  const workedHours = (stats.sessions_this_month * sessionDuration) / 60
+
+  function saveDuration() {
+    const val = parseInt(durationInput, 10)
+    if (!isNaN(val) && val > 0 && val <= 240) {
+      setSessionDuration(val)
+      localStorage.setItem(SESSION_DURATION_KEY, String(val))
+    }
+    setEditingDuration(false)
+  }
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-6">
       <div className="mb-8">
@@ -109,12 +131,34 @@ export default function EstadisticasPage() {
           value={stats.sessions_this_month}
           sub="Sesiones realizadas"
         />
-        <StatCard
-          label="Horas trabajadas"
-          value={`${stats.audio_hours_this_month.toFixed(1)}h`}
-          sub="Estimado: 50 min por sesión"
-          color="text-blue-600 dark:text-blue-400"
-        />
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+          <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Horas trabajadas</p>
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{workedHours.toFixed(1)}h</p>
+          <div className="flex items-center gap-1 mt-0.5">
+            {editingDuration ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  value={durationInput}
+                  onChange={(e) => setDurationInput(e.target.value)}
+                  onBlur={saveDuration}
+                  onKeyDown={(e) => e.key === "Enter" && saveDuration()}
+                  autoFocus
+                  min={1} max={240}
+                  className="w-14 text-xs border border-blue-300 dark:border-blue-700 rounded px-1 py-0.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none"
+                />
+                <span className="text-xs text-gray-400 dark:text-slate-500">min/sesión</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setDurationInput(String(sessionDuration)); setEditingDuration(true) }}
+                className="text-xs text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                {sessionDuration} min/sesión · editar
+              </button>
+            )}
+          </div>
+        </div>
         <StatCard
           label="Pacientes activos"
           value={stats.active_patients}

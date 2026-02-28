@@ -77,7 +77,9 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
     plan_proximo: "",
   })
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [audioDuration, setAudioDuration] = useState(0)
+  const [uploadedAudioPath, setUploadedAudioPath] = useState<string | null>(null)
+  const [audioDurationMin, setAudioDurationMin] = useState(0)
+  const [transcribing, setTranscribing] = useState(false)
   const [state, setState] = useState<UploadState>("idle")
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -134,19 +136,18 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
   function handleVoiceRecorded(duration: number, blob?: Blob) {
     if (blob) {
       setAudioBlob(blob)
-      setAudioDuration(duration)
+      setUploadedAudioPath(null)
+      setAudioDurationMin(Math.round(duration / 60))
     }
   }
 
-  async function uploadAudio(blob: Blob): Promise<string> {
-    setState("requesting-url")
+  async function uploadAudioBlob(blob: Blob): Promise<string> {
     const urlRes = await fetch("/api/sessions/upload-url?ext=webm", { headers: authHeaders() })
     if (!urlRes.ok) {
       const b = await urlRes.json().catch(() => ({}))
       throw new Error(b.error ?? "No se pudo obtener la URL de subida")
     }
     const { upload_url, storage_path } = await urlRes.json()
-    setState("uploading")
     await new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       xhr.upload.addEventListener("progress", (e) => {
@@ -159,6 +160,34 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
       xhr.send(blob)
     })
     return storage_path
+  }
+
+  async function handleTranscribe() {
+    if (!audioBlob) return
+    setError(null)
+    setTranscribing(true)
+    setProgress(0)
+    try {
+      setState("uploading")
+      const path = await uploadAudioBlob(audioBlob)
+      setUploadedAudioPath(path)
+      setState("idle")
+      // Transcribe
+      const res = await fetch(`/api/sessions/transcribe?path=${encodeURIComponent(path)}`, {
+        headers: authHeaders(),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
+      setRawText(data.transcription)
+      setAudioDurationMin(Math.round(data.duration_minutes))
+      setTimeout(() => adjustHeight(), 0)
+    } catch (err: unknown) {
+      setError((err as Error).message)
+      setState("error")
+    } finally {
+      setTranscribing(false)
+      setState("idle")
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -174,7 +203,14 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
 
     try {
       let audioPath: string | undefined
-      if (audioBlob) audioPath = await uploadAudio(audioBlob)
+      if (uploadedAudioPath) {
+        // Already uploaded during transcription
+        audioPath = uploadedAudioPath
+      } else if (audioBlob) {
+        // Upload now (user skipped transcription step)
+        setState("uploading")
+        audioPath = await uploadAudioBlob(audioBlob)
+      }
 
       setState("creating")
 
@@ -344,7 +380,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             </div>
           </div>
 
-          {/* Voice recording — psychologist's own voice notes */}
+          {/* Voice recording — transcribes to text for editing */}
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-800/50 p-3">
             <div className="flex items-center gap-2 mb-1">
               <Mic className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
@@ -352,21 +388,47 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
               <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">máx. 4 min</span>
             </div>
             <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">
-              Grabá tus propias notas de voz. La IA transcribe automáticamente.
+              Grabá y luego transcribí. El texto aparece en "Notas libres" para editar.
             </p>
-            {audioBlob ? (
-              <div className="flex items-center justify-between bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-sm text-gray-700 dark:text-slate-300">Audio grabado ({audioDuration}s)</span>
-                </div>
+            {uploadedAudioPath ? (
+              <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+                <span className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
+                  Transcripto · {audioDurationMin} min
+                </span>
                 <button
                   type="button"
-                  onClick={() => { setAudioBlob(null); setAudioDuration(0) }}
-                  className="text-xs text-red-500 hover:text-red-700 dark:text-red-400"
+                  onClick={() => { setAudioBlob(null); setUploadedAudioPath(null); setAudioDurationMin(0) }}
+                  className="text-xs text-gray-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
                   disabled={isUploading}
                 >
                   Quitar
+                </button>
+              </div>
+            ) : audioBlob ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500" />
+                    <span className="text-sm text-gray-700 dark:text-slate-300">Audio grabado</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setAudioBlob(null); setAudioDurationMin(0) }}
+                    className="text-xs text-gray-400 hover:text-red-500"
+                    disabled={isUploading || transcribing}
+                  >
+                    Quitar
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleTranscribe}
+                  disabled={isUploading || transcribing}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  {transcribing ? (state === "uploading" ? `Subiendo ${progress}%...` : "Transcribiendo...") : "Transcribir con IA"}
                 </button>
               </div>
             ) : (

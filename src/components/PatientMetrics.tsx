@@ -25,11 +25,15 @@ function parseAiSummary(raw: string | null): AiSummary | null {
   try { return JSON.parse(raw) as AiSummary } catch { return null }
 }
 
-function mostFrequent(values: string[]): string | null {
+function mostFrequentWithPct(values: string[]): string | null {
   if (values.length === 0) return null
   const freq: Record<string, number> = {}
   for (const v of values) { if (v) freq[v] = (freq[v] ?? 0) + 1 }
-  return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+  const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1])
+  if (!sorted[0]) return null
+  const [value, count] = sorted[0]
+  const pct = Math.round((count / values.length) * 100)
+  return values.length > 1 ? `${value} (${pct}%)` : value
 }
 
 function topN(values: string[], n: number): string[] {
@@ -150,10 +154,10 @@ export function PatientMetrics({
   const topPoints = topN(allPoints, 4)
 
   const metrics: MetricCardProps[] = [
-    { label: "Sentimiento", value: mostFrequent(sentimientos), glowColor: "orange", emoji: "💛" },
-    { label: "Pensamiento", value: mostFrequent(pensamientos), glowColor: "purple", emoji: "🧠" },
-    { label: "Mecanismo de defensa", value: mostFrequent(mecanismos), glowColor: "blue", emoji: "🛡️" },
-    { label: "Temática", value: mostFrequent(tematicas), glowColor: "green", emoji: "🗂️" },
+    { label: "Sentimiento", value: mostFrequentWithPct(sentimientos), glowColor: "orange", emoji: "💛" },
+    { label: "Pensamiento", value: mostFrequentWithPct(pensamientos), glowColor: "purple", emoji: "🧠" },
+    { label: "Mecanismo de defensa", value: mostFrequentWithPct(mecanismos), glowColor: "blue", emoji: "🛡️" },
+    { label: "Temática", value: mostFrequentWithPct(tematicas), glowColor: "green", emoji: "🗂️" },
   ]
 
   return (
