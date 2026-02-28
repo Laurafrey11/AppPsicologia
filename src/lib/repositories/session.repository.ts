@@ -1,14 +1,11 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
 
-export type Session = {
-  id: string
-  patient_id: string
-  psychologist_id: string
-  raw_text: string | null
-  transcription: string | null
-  ai_summary: string | null
-  audio_duration: number | null
-  created_at: string
+export type SessionNotes = {
+  motivo_consulta: string
+  hipotesis_clinica: string
+  intervenciones: string
+  evolucion: string
+  plan_proximo: string
 }
 
 export type AiSummary = {
@@ -17,6 +14,25 @@ export type AiSummary = {
   conflicts: string[]
   clinical_hypotheses: string[]
   points_to_explore: string[]
+  sentimiento_predominante: string
+  pensamiento_predominante: string
+  mecanismo_defensa: string
+  tematica_predominante: string
+}
+
+export type Session = {
+  id: string
+  patient_id: string
+  psychologist_id: string
+  raw_text: string | null
+  transcription: string | null
+  ai_summary: string | null
+  audio_duration: number | null
+  session_notes: SessionNotes | null
+  paid: boolean
+  paid_at: string | null
+  fee: number | null
+  created_at: string
 }
 
 export type InsertSessionData = {
@@ -26,6 +42,8 @@ export type InsertSessionData = {
   transcription: string | null
   ai_summary: string | null
   audio_duration: number | null
+  session_notes: SessionNotes | null
+  fee?: number | null
 }
 
 export async function insertSession(data: InsertSessionData): Promise<Session> {
@@ -34,31 +52,21 @@ export async function insertSession(data: InsertSessionData): Promise<Session> {
     .insert(data)
     .select()
     .single()
-
   if (error) throw new Error(error.message)
   return session
 }
 
-/** Returns all sessions for a patient ordered newest-first. */
-export async function findSessionsByPatient(
-  patientId: string,
-  psychologistId: string
-): Promise<Session[]> {
+export async function findSessionsByPatient(patientId: string, psychologistId: string): Promise<Session[]> {
   const { data, error } = await supabaseAdmin
     .from("sessions")
     .select("*")
     .eq("patient_id", patientId)
     .eq("psychologist_id", psychologistId)
     .order("created_at", { ascending: false })
-
   if (error) throw new Error(error.message)
   return data ?? []
 }
 
-/**
- * Returns only the ai_summary field for all sessions of a patient.
- * Used to compute the cumulative case_summary without loading full session data.
- */
 export async function findSessionSummariesByPatient(
   patientId: string,
   psychologistId: string
@@ -69,23 +77,204 @@ export async function findSessionSummariesByPatient(
     .eq("patient_id", patientId)
     .eq("psychologist_id", psychologistId)
     .order("created_at", { ascending: true })
-
   if (error) throw new Error(error.message)
   return data ?? []
 }
 
-/** Counts sessions created in the current calendar month for a psychologist. */
 export async function countSessionsThisMonth(psychologistId: string): Promise<number> {
   const startOfMonth = new Date()
   startOfMonth.setDate(1)
   startOfMonth.setHours(0, 0, 0, 0)
-
   const { count, error } = await supabaseAdmin
     .from("sessions")
     .select("*", { count: "exact", head: true })
     .eq("psychologist_id", psychologistId)
     .gte("created_at", startOfMonth.toISOString())
-
   if (error) throw new Error(error.message)
   return count ?? 0
+}
+
+export async function sumAudioMinutesThisMonth(psychologistId: string): Promise<number> {
+  const startOfMonth = new Date()
+  startOfMonth.setDate(1)
+  startOfMonth.setHours(0, 0, 0, 0)
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .select("audio_duration")
+    .eq("psychologist_id", psychologistId)
+    .gte("created_at", startOfMonth.toISOString())
+  if (error) return 0
+  return (data ?? []).reduce((sum, s) => sum + (s.audio_duration ?? 0), 0)
+}
+
+export async function updateSessionPaid(
+  id: string,
+  psychologistId: string,
+  paid: boolean
+): Promise<Session> {
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .update({ paid, paid_at: paid ? new Date().toISOString() : null })
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export type PracticeStats = {
+  active_patients: number
+  inactive_patients: number
+  sessions_this_month: number
+  income_this_month: number
+  unpaid_overdue: Array<{ patient_id: string; created_at: string; fee: number | null }>
+  audio_hours_this_month: number
+  avg_treatment_days: number
+  low_frequency_patients: Array<{ patient_id: string; last_session: string }>
+}
+
+export async function getPracticeStats(psychologistId: string): Promise<PracticeStats> {
+  const now = new Date()
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  const fourDaysAgo = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000)
+  const twentyOneDaysAgo = new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000)
+
+  // All sessions for this psychologist
+  const { data: allSessions } = await supabaseAdmin
+    .from("sessions")
+    .select("id, patient_id, created_at, paid, fee, audio_duration")
+    .eq("psychologist_id", psychologistId)
+    .order("created_at", { ascending: true })
+
+  const sessions = allSessions ?? []
+
+  // Patient counts
+  const { count: activeCount } = await supabaseAdmin
+    .from("patients")
+    .select("*", { count: "exact", head: true })
+    .eq("psychologist_id", psychologistId)
+    .eq("is_active", true)
+
+  const { count: inactiveCount } = await supabaseAdmin
+    .from("patients")
+    .select("*", { count: "exact", head: true })
+    .eq("psychologist_id", psychologistId)
+    .eq("is_active", false)
+
+  // This month stats
+  const thisMonthSessions = sessions.filter(
+    (s) => new Date(s.created_at) >= startOfMonth
+  )
+  const income_this_month = thisMonthSessions
+    .filter((s) => s.paid)
+    .reduce((sum, s) => sum + (s.fee ?? 0), 0)
+
+  const audio_hours_this_month =
+    thisMonthSessions.reduce((sum, s) => sum + (s.audio_duration ?? 0), 0) / 60
+
+  // Unpaid overdue (not paid, created >4 days ago)
+  const unpaid_overdue = sessions.filter(
+    (s) => !s.paid && new Date(s.created_at) < fourDaysAgo
+  ).map((s) => ({ patient_id: s.patient_id, created_at: s.created_at, fee: s.fee }))
+
+  // Average treatment duration: for each patient, diff between first and last session
+  const patientDurations: Record<string, { first: Date; last: Date }> = {}
+  for (const s of sessions) {
+    const d = new Date(s.created_at)
+    if (!patientDurations[s.patient_id]) {
+      patientDurations[s.patient_id] = { first: d, last: d }
+    } else {
+      if (d < patientDurations[s.patient_id].first) patientDurations[s.patient_id].first = d
+      if (d > patientDurations[s.patient_id].last) patientDurations[s.patient_id].last = d
+    }
+  }
+  const durations = Object.values(patientDurations).map(
+    ({ first, last }) => (last.getTime() - first.getTime()) / (1000 * 60 * 60 * 24)
+  )
+  const avg_treatment_days =
+    durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0
+
+  // Low frequency: patients whose last session was >21 days ago
+  const lastSessionByPatient: Record<string, Date> = {}
+  for (const s of sessions) {
+    const d = new Date(s.created_at)
+    if (!lastSessionByPatient[s.patient_id] || d > lastSessionByPatient[s.patient_id]) {
+      lastSessionByPatient[s.patient_id] = d
+    }
+  }
+  const low_frequency_patients = Object.entries(lastSessionByPatient)
+    .filter(([, last]) => last < twentyOneDaysAgo)
+    .map(([patient_id, last]) => ({ patient_id, last_session: last.toISOString() }))
+
+  return {
+    active_patients: activeCount ?? 0,
+    inactive_patients: inactiveCount ?? 0,
+    sessions_this_month: thisMonthSessions.length,
+    income_this_month,
+    unpaid_overdue,
+    audio_hours_this_month,
+    avg_treatment_days,
+    low_frequency_patients,
+  }
+}
+
+export type SupervisionData = {
+  total_sessions: number
+  recurring_themes: Array<{ value: string; count: number }>
+  dominant_sentimientos: Array<{ value: string; count: number }>
+  common_mecanismos: Array<{ value: string; count: number }>
+  common_pensamientos: Array<{ value: string; count: number }>
+  patient_count: number
+}
+
+export async function getSupervisionData(psychologistId: string): Promise<SupervisionData> {
+  const { data: sessions } = await supabaseAdmin
+    .from("sessions")
+    .select("patient_id, ai_summary")
+    .eq("psychologist_id", psychologistId)
+    .not("ai_summary", "is", null)
+
+  const rows = sessions ?? []
+  const patientIds = new Set(rows.map((r) => r.patient_id))
+
+  const themes: Record<string, number> = {}
+  const sentimientos: Record<string, number> = {}
+  const mecanismos: Record<string, number> = {}
+  const pensamientos: Record<string, number> = {}
+
+  for (const row of rows) {
+    try {
+      const summary = JSON.parse(row.ai_summary)
+      if (summary.tematica_predominante) {
+        themes[summary.tematica_predominante] = (themes[summary.tematica_predominante] ?? 0) + 1
+      }
+      if (summary.sentimiento_predominante) {
+        sentimientos[summary.sentimiento_predominante] = (sentimientos[summary.sentimiento_predominante] ?? 0) + 1
+      }
+      if (summary.mecanismo_defensa) {
+        mecanismos[summary.mecanismo_defensa] = (mecanismos[summary.mecanismo_defensa] ?? 0) + 1
+      }
+      if (summary.pensamiento_predominante) {
+        pensamientos[summary.pensamiento_predominante] = (pensamientos[summary.pensamiento_predominante] ?? 0) + 1
+      }
+    } catch {
+      // skip malformed
+    }
+  }
+
+  const toRanked = (map: Record<string, number>) =>
+    Object.entries(map)
+      .map(([value, count]) => ({ value, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+
+  return {
+    total_sessions: rows.length,
+    patient_count: patientIds.size,
+    recurring_themes: toRanked(themes),
+    dominant_sentimientos: toRanked(sentimientos),
+    common_mecanismos: toRanked(mecanismos),
+    common_pensamientos: toRanked(pensamientos),
+  }
 }

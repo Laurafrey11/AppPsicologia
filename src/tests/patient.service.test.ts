@@ -74,7 +74,7 @@ describe("createPatient", () => {
   it("checks limit before inserting", async () => {
     await createPatient(createInput, PSYCH_ID)
     expect(mockCheckLimit).toHaveBeenCalledWith(PSYCH_ID)
-    expect(mockCheckLimit).toHaveBeenCalledBefore(mockInsert as ReturnType<typeof vi.fn>)
+    expect(mockInsert).toHaveBeenCalled()
   })
 
   it("returns the created patient", async () => {

@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { SessionCard } from "@/components/SessionCard"
 import { NewSessionModal } from "@/components/NewSessionModal"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
+import { PatientMetrics } from "@/components/PatientMetrics"
 
 interface Patient {
   id: string
@@ -19,6 +20,14 @@ interface Patient {
   created_at: string
 }
 
+interface SessionNotes {
+  motivo_consulta: string
+  hipotesis_clinica: string
+  intervenciones: string
+  evolucion: string
+  plan_proximo: string
+}
+
 interface Session {
   id: string
   created_at: string
@@ -26,6 +35,9 @@ interface Session {
   transcription: string | null
   ai_summary: string | null
   audio_duration: number | null
+  session_notes: SessionNotes | null
+  paid: boolean
+  fee: number | null
 }
 
 async function apiFetch<T>(path: string, token: string, options?: RequestInit): Promise<T> {
@@ -143,6 +155,9 @@ export default function PatientDetailPage() {
         </section>
       )}
 
+      {/* Patient Metrics */}
+      <PatientMetrics sessions={sessions} />
+
       {/* Sessions */}
       <section>
         <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
@@ -155,7 +170,7 @@ export default function PatientDetailPage() {
         ) : (
           <div className="space-y-3">
             {sessions.map((s) => (
-              <SessionCard key={s.id} session={s} />
+              <SessionCard key={s.id} session={s} token={token!} onUpdate={load} />
             ))}
           </div>
         )}

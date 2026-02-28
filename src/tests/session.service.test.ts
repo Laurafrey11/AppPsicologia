@@ -82,6 +82,10 @@ const mockSession = {
   transcription: null,
   ai_summary: null,
   audio_duration: null,
+  session_notes: null,
+  paid: false,
+  paid_at: null,
+  fee: null,
   created_at: new Date().toISOString(),
 }
 
@@ -91,6 +95,10 @@ const mockAiSummary = {
   conflicts: ["Presión laboral"],
   clinical_hypotheses: ["Trastorno de ansiedad generalizada"],
   points_to_explore: ["Historia familiar de ansiedad"],
+  sentimiento_predominante: "Ansiedad",
+  pensamiento_predominante: "Catastrofización",
+  mecanismo_defensa: "Racionalización",
+  tematica_predominante: "Trabajo/rendimiento",
 }
 
 beforeEach(() => {
@@ -184,7 +192,7 @@ describe("createSession — case_summary", () => {
 
   it("updates case_summary when session has an AI summary", async () => {
     const summaryJson = JSON.stringify(mockAiSummary)
-    mockFindSummaries.mockResolvedValue([{ ai_summary: summaryJson }])
+    mockFindSummaries.mockResolvedValue([{ created_at: new Date().toISOString(), ai_summary: summaryJson }])
     const result = await createSession(textInput, PSYCH_ID)
     expect(mockGenerateCaseSummary).toHaveBeenCalled()
     expect(result.caseSummaryUpdated).toBe(true)
@@ -199,7 +207,7 @@ describe("createSession — case_summary", () => {
   })
 
   it("session is still saved even if case_summary update fails", async () => {
-    mockFindSummaries.mockResolvedValue([{ ai_summary: JSON.stringify(mockAiSummary) }])
+    mockFindSummaries.mockResolvedValue([{ created_at: new Date().toISOString(), ai_summary: JSON.stringify(mockAiSummary) }])
     mockGenerateCaseSummary.mockRejectedValue(new Error("OpenAI down"))
     const result = await createSession(textInput, PSYCH_ID)
     // Session was created

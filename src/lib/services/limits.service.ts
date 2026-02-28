@@ -1,17 +1,12 @@
-import {
-  getOrCreateLimits,
-  getOrCreateMonthlyUsage,
-  incrementUsage,
-} from "@/lib/repositories/limits.repository"
+import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
 import { countActivePatients } from "@/lib/repositories/patient.repository"
+import { countSessionsThisMonth, sumAudioMinutesThisMonth } from "@/lib/repositories/session.repository"
 import { LimitExceededError } from "@/lib/errors/LimitExceededError"
 import { logger } from "@/lib/logger/logger"
 
 /**
  * Validates that creating a new patient won't exceed the psychologist's
  * max_patients limit. Throws LimitExceededError if the limit is reached.
- *
- * Call this BEFORE inserting the patient row.
  */
 export async function checkPatientLimit(psychologistId: string): Promise<void> {
   const [limits, activeCount] = await Promise.all([
@@ -19,11 +14,7 @@ export async function checkPatientLimit(psychologistId: string): Promise<void> {
     countActivePatients(psychologistId),
   ])
 
-  logger.info("Checking patient limit", {
-    psychologistId,
-    activeCount,
-    max: limits.max_patients,
-  })
+  logger.info("Checking patient limit", { psychologistId, activeCount, max: limits.max_patients })
 
   if (activeCount >= limits.max_patients) {
     throw new LimitExceededError(
@@ -34,23 +25,21 @@ export async function checkPatientLimit(psychologistId: string): Promise<void> {
 
 /**
  * Validates that creating a new session won't exceed the monthly session limit.
- * Throws LimitExceededError if the limit is reached.
- *
- * Call this BEFORE inserting the session row.
+ * Counts sessions directly from the sessions table for the current calendar month.
  */
 export async function checkSessionLimit(psychologistId: string): Promise<void> {
-  const [limits, usage] = await Promise.all([
+  const [limits, sessionCount] = await Promise.all([
     getOrCreateLimits(psychologistId),
-    getOrCreateMonthlyUsage(psychologistId),
+    countSessionsThisMonth(psychologistId),
   ])
 
   logger.info("Checking session limit", {
     psychologistId,
-    sessionsThisMonth: usage.sessions_count,
+    sessionsThisMonth: sessionCount,
     max: limits.max_sessions_per_month,
   })
 
-  if (usage.sessions_count >= limits.max_sessions_per_month) {
+  if (sessionCount >= limits.max_sessions_per_month) {
     throw new LimitExceededError(
       `Límite de sesiones mensuales alcanzado (${limits.max_sessions_per_month}/mes). Se renueva el 1° del mes.`
     )
@@ -59,44 +48,39 @@ export async function checkSessionLimit(psychologistId: string): Promise<void> {
 
 /**
  * Validates that uploading audio won't exceed the monthly audio minutes limit.
- * Throws LimitExceededError if adding audioMinutesToAdd would exceed the limit.
- *
- * Call this BEFORE transcribing the audio.
- *
- * @param audioMinutesToAdd - Estimated duration of the new audio (in minutes)
+ * Sums audio_duration from this month's sessions directly.
  */
 export async function checkAudioLimit(
   psychologistId: string,
   audioMinutesToAdd: number
 ): Promise<void> {
-  const [limits, usage] = await Promise.all([
+  const [limits, usedMinutes] = await Promise.all([
     getOrCreateLimits(psychologistId),
-    getOrCreateMonthlyUsage(psychologistId),
+    sumAudioMinutesThisMonth(psychologistId),
   ])
 
   logger.info("Checking audio limit", {
     psychologistId,
-    audioMinutesUsed: usage.audio_minutes,
+    audioMinutesUsed: usedMinutes,
     audioMinutesToAdd,
     max: limits.max_audio_minutes,
   })
 
-  if (usage.audio_minutes + audioMinutesToAdd > limits.max_audio_minutes) {
-    const remaining = limits.max_audio_minutes - usage.audio_minutes
+  if (usedMinutes + audioMinutesToAdd > limits.max_audio_minutes) {
+    const remaining = limits.max_audio_minutes - usedMinutes
     throw new LimitExceededError(
-      `Límite de minutos de audio alcanzado. Restante este mes: ${remaining} minutos.`
+      `Límite de minutos de audio alcanzado. Restante este mes: ${Math.max(0, remaining)} minutos.`
     )
   }
 }
 
 /**
- * Records usage after a successful session creation.
- * Uses a Supabase RPC for atomic increment (avoids race conditions).
+ * No-op — usage is counted directly from the sessions table on every check.
+ * Kept for backwards compatibility with session.service.ts call sites.
  */
 export async function recordSessionUsage(
-  psychologistId: string,
-  audioMinutes: number
+  _psychologistId: string,
+  _audioMinutes: number
 ): Promise<void> {
-  await incrementUsage(psychologistId, 1, audioMinutes)
-  logger.info("Usage recorded", { psychologistId, audioMinutes })
+  // Usage is derived live from sessions table; no separate tracking needed.
 }
