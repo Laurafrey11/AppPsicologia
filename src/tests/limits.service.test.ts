@@ -37,6 +37,7 @@ const baseLimits = {
   max_patients: 30,
   max_sessions_per_month: 120,
   max_audio_minutes: 600,
+  max_ai_assist_per_month: 20,
   created_at: new Date().toISOString(),
 }
 

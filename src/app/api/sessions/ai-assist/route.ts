@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
-import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
+import {
+  getOrCreateLimits,
+  getOrCreateMonthUsage,
+  incrementAiAssistCount,
+} from "@/lib/repositories/limits.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 import OpenAI from "openai"
@@ -26,20 +30,50 @@ Corregí la ortografía y gramática del siguiente texto sin cambiar su signific
 Respondé SOLO con el texto corregido, sin introducción ni cierre.`,
 }
 
+/** Returns the current month as "YYYY-MM". */
+function currentMonth(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+}
+
 /**
  * POST /api/sessions/ai-assist
  *
  * Body: { text: string, action: "summarize" | "condense" | "grammar" }
  * Returns: { result: string }
  *
- * Used in the NewSessionModal for AI-assisted note editing.
+ * Rate-limited: reads ai_assist_count from usage_tracking BEFORE calling OpenAI.
+ * After a successful call, increments the counter atomically via a DB expression
+ * (SET ai_assist_count = ai_assist_count + 1) — never writes a JS-computed value.
  */
 export async function POST(req: Request) {
   try {
     const user = await getAuthUser(req)
+    const month = currentMonth()
 
-    // Verify psychologist has an active plan before calling OpenAI
-    await getOrCreateLimits(user.id)
+    // Fetch plan limits + current month usage in parallel.
+    const [limits, usage] = await Promise.all([
+      getOrCreateLimits(user.id),
+      getOrCreateMonthUsage(user.id, month),
+    ])
+
+    if (usage.ai_assist_count >= limits.max_ai_assist_per_month) {
+      logger.warn("AI assist limit reached", {
+        psychologistId: user.id,
+        month,
+        count: usage.ai_assist_count,
+        limit: limits.max_ai_assist_per_month,
+      })
+      return NextResponse.json(
+        {
+          error: `Límite mensual de Asistente IA alcanzado (${limits.max_ai_assist_per_month} usos/mes). Se renueva el 1° de cada mes.`,
+          code: "AI_ASSIST_LIMIT_EXCEEDED",
+          used: usage.ai_assist_count,
+          limit: limits.max_ai_assist_per_month,
+        },
+        { status: 403 }
+      )
+    }
 
     const body = await req.json()
     const { text, action } = body as { text: string; action: string }
@@ -57,7 +91,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Acción no válida" }, { status: 400 })
     }
 
-    logger.info("AI assist requested", { action, textLength: text.length })
+    logger.info("AI assist requested", {
+      action,
+      textLength: text.length,
+      psychologistId: user.id,
+      usedThisMonth: usage.ai_assist_count,
+    })
 
     const openai = getOpenAI()
     const completion = await openai.chat.completions.create({
@@ -71,6 +110,11 @@ export async function POST(req: Request) {
     })
 
     const result = completion.choices[0]?.message?.content?.trim() ?? ""
+
+    // Atomic increment: DB executes SET ai_assist_count = ai_assist_count + 1.
+    // The JS value from usage.ai_assist_count is never used in this UPDATE.
+    await incrementAiAssistCount(user.id, month)
+
     return NextResponse.json({ result })
   } catch (error: unknown) {
     const err = error as Error

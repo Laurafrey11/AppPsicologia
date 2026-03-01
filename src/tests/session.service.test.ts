@@ -71,6 +71,7 @@ const mockPatient = {
   reason: "Ansiedad",
   case_summary: null,
   recording_consent_at: null,
+  historical_import_done: false,
   is_active: true,
   created_at: new Date().toISOString(),
 }
