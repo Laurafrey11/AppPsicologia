@@ -111,7 +111,7 @@ export function SessionCard({ session, token, onUpdate }: Props) {
 
       // Update local display state immediately
       setLocalText(data.raw_text ?? editText)
-      setLocalDate(data.session_date ?? editDate || null)
+      setLocalDate((data.session_date ?? editDate) || null)
       setLocalFee(data.fee ?? null)
       setPaid(data.paid ?? editPaid)
 
