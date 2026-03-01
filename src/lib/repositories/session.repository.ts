@@ -126,6 +126,62 @@ export async function sumAudioMinutesThisMonth(psychologistId: string): Promise<
   return (data ?? []).reduce((sum, s) => sum + (s.audio_duration ?? 0), 0)
 }
 
+export async function countSessionsByPatient(
+  patientId: string,
+  psychologistId: string
+): Promise<number> {
+  const { count, error } = await supabaseAdmin
+    .from("sessions")
+    .select("*", { count: "exact", head: true })
+    .eq("patient_id", patientId)
+    .eq("psychologist_id", psychologistId)
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+export async function findSessionById(
+  id: string,
+  psychologistId: string
+): Promise<Session | null> {
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .select("*")
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+    .single()
+  if (error) return null
+  return data
+}
+
+export type UpdateSessionData = {
+  raw_text: string
+  session_date?: string | null
+  fee?: number | null
+  paid?: boolean
+}
+
+export async function updateSession(
+  id: string,
+  psychologistId: string,
+  data: UpdateSessionData
+): Promise<Session> {
+  const { paid, ...rest } = data
+  const payload: Record<string, unknown> = { ...rest }
+  if (paid !== undefined) {
+    payload.paid = paid
+    payload.paid_at = paid ? new Date().toISOString() : null
+  }
+  const { data: session, error } = await supabaseAdmin
+    .from("sessions")
+    .update(payload)
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return session
+}
+
 export async function updateSessionPaid(
   id: string,
   psychologistId: string,

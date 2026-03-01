@@ -63,8 +63,68 @@ export function SessionCard({ session, token, onUpdate }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [paid, setPaid] = useState(session.paid)
   const [togglingPaid, setTogglingPaid] = useState(false)
+
+  // Edit mode state
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState(session.raw_text ?? "")
+  const [editDate, setEditDate] = useState(session.session_date ?? "")
+  const [editFee, setEditFee] = useState(session.fee != null ? String(session.fee) : "")
+  const [editPaid, setEditPaid] = useState(session.paid)
+  const [saving, setSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Local display overrides (updated on save without waiting for reload)
+  const [localText, setLocalText] = useState(session.raw_text)
+  const [localDate, setLocalDate] = useState(session.session_date)
+  const [localFee, setLocalFee] = useState(session.fee)
+
   const summary = parseAiSummary(session.ai_summary)
   const hasNotes = session.session_notes && NOTE_LABELS.some(({ key }) => session.session_notes?.[key])
+
+  function openEdit() {
+    setEditText(localText ?? "")
+    setEditDate(localDate ?? "")
+    setEditFee(localFee != null ? String(localFee) : "")
+    setEditPaid(paid)
+    setSaveError(null)
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    if (!editText.trim()) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          text: editText,
+          session_date: editDate || null,
+          fee: editFee !== "" ? Number(editFee) : null,
+          paid: editPaid,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setSaveError(data.error ?? "Error al guardar"); return }
+
+      // Update local display state immediately
+      setLocalText(data.raw_text ?? editText)
+      setLocalDate(data.session_date ?? editDate || null)
+      setLocalFee(data.fee ?? null)
+      setPaid(data.paid ?? editPaid)
+
+      setSaveSuccess(true)
+      setEditing(false)
+      setTimeout(() => setSaveSuccess(false), 2000)
+      onUpdate?.()
+    } catch (err: unknown) {
+      setSaveError((err as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function handleTogglePaid(e: React.MouseEvent) {
     e.stopPropagation()
@@ -79,9 +139,9 @@ export function SessionCard({ session, token, onUpdate }: Props) {
     } catch { /* silently fail */ } finally { setTogglingPaid(false) }
   }
 
-  // Use session_date if available, fallback to created_at
-  const displayDate = session.session_date
-    ? new Date(session.session_date + "T12:00:00").toLocaleDateString("es-AR", {
+  // Use local overrides so edits are reflected immediately
+  const displayDate = localDate
+    ? new Date(localDate + "T12:00:00").toLocaleDateString("es-AR", {
         year: "numeric", month: "long", day: "numeric",
       })
     : new Date(session.created_at).toLocaleDateString("es-AR", {
@@ -125,6 +185,9 @@ export function SessionCard({ session, token, onUpdate }: Props) {
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+          {saveSuccess && (
+            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Guardado</span>
+          )}
           <button
             onClick={handleTogglePaid}
             disabled={togglingPaid}
@@ -151,10 +214,87 @@ export function SessionCard({ session, token, onUpdate }: Props) {
 
       {expanded && (
         <div className="border-t border-gray-100 dark:border-slate-800 px-5 py-4 space-y-4">
-          {session.fee != null && session.fee > 0 && (
+
+          {/* ── Edit form ── */}
+          {editing && (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Fecha</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Honorario ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFee}
+                    onChange={(e) => setEditFee(e.target.value)}
+                    placeholder="0"
+                    className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors w-32"
+                  />
+                </div>
+                <div className="flex flex-col gap-1 justify-end">
+                  <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Pago</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditPaid((v) => !v)}
+                    className={`text-xs font-semibold px-3 py-2 rounded-lg border transition-colors ${
+                      editPaid
+                        ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400"
+                        : "bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400"
+                    }`}
+                  >
+                    {editPaid ? "Pagado" : "Sin pagar"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Texto de la sesión</label>
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  rows={6}
+                  className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors resize-y"
+                />
+              </div>
+
+              {saveError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !editText.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+                >
+                  {saving ? "Guardando..." : "Guardar cambios"}
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                  className="text-sm text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 px-3 py-1.5 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Read-only view ── */}
+          {!editing && (
+            <>
+          {localFee != null && localFee > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Honorario:</span>
-              <span className="text-sm font-medium text-gray-800 dark:text-slate-200">${session.fee.toLocaleString("es-AR")}</span>
+              <span className="text-sm font-medium text-gray-800 dark:text-slate-200">${localFee.toLocaleString("es-AR")}</span>
               {!paid && <span className="text-xs text-amber-600 dark:text-amber-400">(pendiente de pago)</span>}
             </div>
           )}
@@ -177,12 +317,12 @@ export function SessionCard({ session, token, onUpdate }: Props) {
             </div>
           )}
 
-          {session.raw_text && (
+          {localText && (
             <div>
               <h4 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1.5">
                 Notas libres
               </h4>
-              <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{session.raw_text}</p>
+              <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{localText}</p>
             </div>
           )}
 
@@ -290,6 +430,18 @@ export function SessionCard({ session, token, onUpdate }: Props) {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Edit button */}
+          <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-slate-800">
+            <button
+              onClick={openEdit}
+              className="text-xs text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              Editar
+            </button>
+          </div>
+          </>
           )}
         </div>
       )}

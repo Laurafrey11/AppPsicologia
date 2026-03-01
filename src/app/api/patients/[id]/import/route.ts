@@ -5,6 +5,7 @@ import {
   insertSession,
   findSessionSummariesByPatient,
   countSessionsThisMonth,
+  countSessionsByPatient,
 } from "@/lib/repositories/session.repository"
 import { generateSessionSummary, generateCaseSummary, extractSessionsFromText } from "@/lib/services/openai.service"
 import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
@@ -59,6 +60,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const MAX_TXT_CHARS = 50_000
 
     if (ext === "txt") {
+      // Gate: historical import is only allowed at the start of treatment
+      const existingCount = await countSessionsByPatient(patientId, user.id)
+      if (existingCount > 5) {
+        return NextResponse.json(
+          {
+            error:
+              "La importación histórica solo está disponible al inicio del seguimiento (máximo 5 sesiones registradas).",
+          },
+          { status: 409 }
+        )
+      }
+
       const text = await file.text()
       if (text.length > MAX_TXT_CHARS) {
         return NextResponse.json(
