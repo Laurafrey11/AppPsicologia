@@ -6,7 +6,7 @@ import {
   findSessionSummariesByPatient,
   countSessionsThisMonth,
 } from "@/lib/repositories/session.repository"
-import { generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
+import { generateSessionSummary, generateCaseSummary, extractSessionsFromText } from "@/lib/services/openai.service"
 import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -56,7 +56,27 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
     let rows: Array<{ fecha: string; texto: string }> = []
 
-    if (ext === "csv" || ext === "txt") {
+    const MAX_TXT_CHARS = 50_000
+
+    if (ext === "txt") {
+      const text = await file.text()
+      if (text.length > MAX_TXT_CHARS) {
+        return NextResponse.json(
+          { error: `El archivo supera el límite de ${MAX_TXT_CHARS.toLocaleString()} caracteres para importación libre.` },
+          { status: 400 }
+        )
+      }
+      if (!text.trim()) {
+        return NextResponse.json({ error: "El archivo de texto está vacío" }, { status: 400 })
+      }
+      rows = await extractSessionsFromText(text)
+      if (rows.length === 0) {
+        return NextResponse.json(
+          { error: "No se pudieron detectar sesiones en el archivo. Asegurate de que el texto incluya fechas identificables." },
+          { status: 400 }
+        )
+      }
+    } else if (ext === "csv") {
       const text = await file.text()
       const result = Papa.parse<Record<string, string>>(text, {
         header: true,
@@ -65,7 +85,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const fields = result.meta.fields ?? []
       if (!fields.includes("fecha") || !fields.includes("texto")) {
         return NextResponse.json(
-          { error: "El archivo debe contener columnas: fecha, texto" },
+          { error: "El CSV debe contener columnas: fecha, texto" },
           { status: 400 }
         )
       }
@@ -77,14 +97,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false })
       if (data.length === 0 || !("fecha" in data[0]) || !("texto" in data[0])) {
         return NextResponse.json(
-          { error: "El archivo debe contener columnas: fecha, texto" },
+          { error: "El XLSX debe contener columnas: fecha, texto" },
           { status: 400 }
         )
       }
       rows = data.map((r) => ({ fecha: String(r.fecha ?? ""), texto: String(r.texto ?? "") }))
     } else {
       return NextResponse.json(
-        { error: "Formato no soportado. Usá CSV, XLSX o TXT." },
+        { error: "Formato no soportado. Usá TXT (texto libre), CSV o XLSX." },
         { status: 400 }
       )
     }

@@ -69,6 +69,46 @@ Formato requerido:
   }
 }
 
+export async function extractSessionsFromText(
+  text: string
+): Promise<Array<{ fecha: string; texto: string }>> {
+  const openai = getOpenAI()
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Extraé sesiones clínicas del texto que envía el usuario.
+Cada sesión tiene una fecha y un cuerpo de texto.
+Devolvé JSON con esta forma exacta:
+{ "sessions": [ { "fecha": "YYYY-MM-DD", "texto": "contenido completo de la sesión" } ] }
+Si la fecha está en formato DD/MM/YYYY, convertila a YYYY-MM-DD.
+No inventés sesiones. No resumás. Solo estructurá.
+Respondé ÚNICAMENTE con JSON válido, sin texto adicional.`,
+      },
+      {
+        role: "user",
+        content: text,
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0,
+  })
+  const content = response.choices[0]?.message?.content
+  if (!content) throw new Error("OpenAI no devolvió respuesta al extraer sesiones")
+  const parsed = JSON.parse(content) as { sessions?: unknown }
+  if (!Array.isArray(parsed.sessions)) {
+    throw new Error("OpenAI devolvió un formato inesperado (falta array sessions)")
+  }
+  return (parsed.sessions as Array<unknown>).filter(
+    (s): s is { fecha: string; texto: string } =>
+      typeof s === "object" &&
+      s !== null &&
+      typeof (s as Record<string, unknown>).fecha === "string" &&
+      typeof (s as Record<string, unknown>).texto === "string"
+  )
+}
+
 export async function generateCaseSummary(summaries: AiSummary[]): Promise<string> {
   if (summaries.length === 0) return ""
   const openai = getOpenAI()

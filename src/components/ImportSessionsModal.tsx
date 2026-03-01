@@ -39,6 +39,8 @@ function formatPreviewDate(dateStr: string): string {
 export function ImportSessionsModal({ patientId, token, onClose, onImported }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [rows, setRows] = useState<ImportRow[]>([])
+  const [isFreeTxt, setIsFreeTxt] = useState(false)
+  const [txtPreview, setTxtPreview] = useState<string>("")
   const [parseError, setParseError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null)
@@ -49,17 +51,31 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
     setFile(f)
     setParseError(null)
     setRows([])
+    setIsFreeTxt(false)
+    setTxtPreview("")
     setResult(null)
     const ext = f.name.split(".").pop()?.toLowerCase() ?? ""
 
-    if (ext === "csv" || ext === "txt") {
+    if (ext === "txt") {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const text = (e.target?.result as string) ?? ""
+        if (!text.trim()) {
+          setParseError("El archivo de texto está vacío")
+          return
+        }
+        setIsFreeTxt(true)
+        setTxtPreview(text.slice(0, 500))
+      }
+      reader.readAsText(f)
+    } else if (ext === "csv") {
       const reader = new FileReader()
       reader.onload = (e) => {
         const text = e.target?.result as string
         const parsed = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
         const fields = parsed.meta.fields ?? []
         if (!fields.includes("fecha") || !fields.includes("texto")) {
-          setParseError("El archivo debe contener columnas: fecha, texto")
+          setParseError("El CSV debe contener columnas: fecha, texto")
           return
         }
         setRows(parsed.data.map((r) => ({ fecha: String(r.fecha ?? ""), texto: String(r.texto ?? "") })))
@@ -73,14 +89,14 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
         const ws = wb.Sheets[wb.SheetNames[0]]
         const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false })
         if (data.length === 0 || !("fecha" in data[0]) || !("texto" in data[0])) {
-          setParseError("El archivo debe contener columnas: fecha, texto")
+          setParseError("El XLSX debe contener columnas: fecha, texto")
           return
         }
         setRows(data.map((r) => ({ fecha: String(r.fecha ?? ""), texto: String(r.texto ?? "") })))
       }
       reader.readAsArrayBuffer(f)
     } else {
-      setParseError("Formato no soportado. Usá CSV, XLSX o TXT.")
+      setParseError("Formato no soportado. Usá TXT, CSV o XLSX.")
     }
   }
 
@@ -92,7 +108,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
   }
 
   async function handleImport() {
-    if (!file || rows.length === 0) return
+    if (!file || (rows.length === 0 && !isFreeTxt)) return
     setImporting(true)
     setParseError(null)
     try {
@@ -135,13 +151,11 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
         </div>
 
         <p className="text-xs text-gray-500 dark:text-slate-400">
-          Soporta{" "}
-          <span className="font-semibold text-gray-700 dark:text-slate-300">CSV</span>,{" "}
-          <span className="font-semibold text-gray-700 dark:text-slate-300">XLSX</span> y{" "}
           <span className="font-semibold text-gray-700 dark:text-slate-300">TXT</span>{" "}
-          con columnas <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">fecha</code> y{" "}
+          — texto libre, OpenAI extrae fecha y contenido automáticamente (máx. 50 000 caracteres).{" "}
+          <span className="font-semibold text-gray-700 dark:text-slate-300">CSV / XLSX</span>{" "}
+          — requieren columnas <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">fecha</code> y{" "}
           <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">texto</code>.
-          Fechas en formato <span className="font-medium">YYYY-MM-DD</span> o <span className="font-medium">DD/MM/YYYY</span>.
         </p>
 
         {/* Result view */}
@@ -218,7 +232,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     Arrastrá un archivo o hacé clic para seleccionar
                   </p>
-                  <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">CSV · XLSX · TXT</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">TXT · CSV · XLSX</p>
                 </div>
               )}
             </div>
@@ -230,7 +244,21 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
               </div>
             )}
 
-            {/* Preview table */}
+            {/* Free TXT preview */}
+            {isFreeTxt && txtPreview && !parseError && (
+              <div className="space-y-2">
+                <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 px-4 py-3">
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">
+                    Texto libre detectado — OpenAI extraerá las sesiones automáticamente
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-300 font-mono whitespace-pre-wrap line-clamp-4 break-all">
+                    {txtPreview}{txtPreview.length >= 500 ? "…" : ""}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Structured preview table (CSV/XLSX) */}
             {rows.length > 0 && !parseError && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-gray-500 dark:text-slate-400">
@@ -280,11 +308,13 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
               </button>
               <button
                 onClick={handleImport}
-                disabled={rows.length === 0 || importing || !!parseError}
+                disabled={(rows.length === 0 && !isFreeTxt) || importing || !!parseError}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium py-2 rounded-lg transition-colors"
               >
                 {importing
                   ? "Importando..."
+                  : isFreeTxt
+                  ? "Importar con IA"
                   : rows.length > 0
                   ? `Confirmar (${rows.length} sesión${rows.length !== 1 ? "es" : ""})`
                   : "Confirmar importación"}
