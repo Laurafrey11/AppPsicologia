@@ -7,7 +7,7 @@ import {
   countSessionsThisMonth,
   countSessionsByPatient,
 } from "@/lib/repositories/session.repository"
-import { generateSessionSummary, generateCaseSummary, extractSessionsFromText } from "@/lib/services/openai.service"
+import { generateSessionSummary, generateCaseSummary, extractSessionsFromText, generateBatchSessionSummaries } from "@/lib/services/openai.service"
 import { getOrCreateLimits } from "@/lib/repositories/limits.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -194,6 +194,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
     }
 
+    // TXT: batch-generate all summaries in ceil(N/20) calls BEFORE inserting.
+    // CSV/XLSX: generate individually inside the loop (unchanged behaviour).
+    let batchSummaries: Array<AiSummary | null> = []
+    if (ext === "txt" && rows.length > 0) {
+      try {
+        batchSummaries = await generateBatchSessionSummaries(rows)
+      } catch (err: unknown) {
+        logger.error("generateBatchSessionSummaries failed — sessions will import without summaries", {
+          patientId,
+          error: (err as Error).message,
+        })
+        // batchSummaries stays [] — sessions still insert, just without AI summaries
+      }
+    }
+
     let imported = 0
     const errors: string[] = []
 
@@ -212,16 +227,26 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         }
 
         let aiSummaryJson: string | null = null
-        try {
-          if (row.texto.trim().length > 10) {
-            const aiSummary = await generateSessionSummary(row.texto)
-            aiSummaryJson = JSON.stringify(aiSummary)
+
+        if (ext === "txt") {
+          // Use pre-generated batch summary — no extra OpenAI call here
+          const batchSummary: AiSummary | null = batchSummaries[i] ?? null
+          if (batchSummary !== null) {
+            aiSummaryJson = JSON.stringify(batchSummary)
           }
-        } catch (aiErr) {
-          logger.error("Failed to generate AI summary for imported session", {
-            row: i + 2,
-            error: (aiErr as Error).message,
-          })
+        } else {
+          // CSV/XLSX: generate per-session (original behaviour)
+          try {
+            if (row.texto.trim().length > 10) {
+              const aiSummary = await generateSessionSummary(row.texto)
+              aiSummaryJson = JSON.stringify(aiSummary)
+            }
+          } catch (aiErr: unknown) {
+            logger.error("Failed to generate AI summary for imported session", {
+              row: i + 2,
+              error: (aiErr as Error).message,
+            })
+          }
         }
 
         await insertSession({
@@ -236,7 +261,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         })
 
         imported++
-      } catch (err) {
+      } catch (err: unknown) {
         errors.push(`Fila ${i + 2}: ${(err as Error).message}`)
       }
     }

@@ -1,5 +1,6 @@
 import OpenAI from "openai"
 import type { AiSummary } from "@/lib/repositories/session.repository"
+import { logger } from "@/lib/logger/logger"
 
 let _openai: OpenAI | null = null
 
@@ -107,6 +108,115 @@ Respondé ÚNICAMENTE con JSON válido, sin texto adicional.`,
       typeof (s as Record<string, unknown>).fecha === "string" &&
       typeof (s as Record<string, unknown>).texto === "string"
   )
+}
+
+/**
+ * Batch-generates clinical summaries for an array of sessions.
+ *
+ * Makes ceil(N / CHUNK_SIZE) sequential calls instead of N individual ones.
+ * Each call sends up to CHUNK_SIZE sessions and receives the same number of
+ * summaries in the same order. On chunk failure the positions stay null so
+ * the caller can still insert the session without a summary.
+ *
+ * Returns an array of length === sessions.length (AiSummary | null per item).
+ */
+export async function generateBatchSessionSummaries(
+  sessions: Array<{ fecha: string; texto: string }>
+): Promise<Array<AiSummary | null>> {
+  if (sessions.length === 0) return []
+
+  const openai = getOpenAI()
+  const CHUNK_SIZE = 20
+  const MAX_CHARS_PER_SESSION = 4000
+
+  // Pre-fill with nulls so any chunk that fails leaves safe defaults
+  const results: Array<AiSummary | null> = Array.from({ length: sessions.length }, () => null)
+
+  for (let start = 0; start < sessions.length; start += CHUNK_SIZE) {
+    const chunk = sessions.slice(start, start + CHUNK_SIZE)
+
+    const input = chunk.map((s, i) => ({
+      i,
+      fecha: s.fecha,
+      texto: s.texto.slice(0, MAX_CHARS_PER_SESSION),
+    }))
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `Sos un asistente para psicólogos clínicos.
+Se te envía un array JSON de sesiones clínicas, cada una con campo "i" (índice), "fecha" y "texto".
+Para cada sesión generá un resumen clínico estructurado.
+
+Devolvé ÚNICAMENTE este JSON (sin texto adicional):
+{
+  "summaries": [
+    {
+      "main_topic": "tema central de la sesión",
+      "dominant_emotions": ["array de emociones"],
+      "conflicts": ["array de conflictos o tensiones"],
+      "clinical_hypotheses": ["array de hipótesis clínicas tentativas (NO diagnósticos)"],
+      "points_to_explore": ["array de puntos para próximas sesiones"],
+      "sentimiento_predominante": "Tristeza | Ansiedad | Enojo | Culpa | Miedo | Vergüenza | Alegría | Ambivalencia",
+      "pensamiento_predominante": "Catastrofización | Pensamiento dicotómico | Sobregeneralización | Personalización | Minimización | Rumiación",
+      "mecanismo_defensa": "Proyección | Racionalización | Negación | Disociación | Sublimación | Represión | Desplazamiento | Intelectualización",
+      "tematica_predominante": "Vínculos familiares | Autoestima | Duelo | Trauma | Identidad | Relaciones de pareja | Trabajo/rendimiento | Ansiedad social"
+    }
+  ]
+}
+
+Reglas estrictas:
+- El array "summaries" debe tener EXACTAMENTE ${chunk.length} elementos en el MISMO ORDEN que la entrada.
+- Si una sesión tiene texto insuficiente para analizar, devolvé null en esa posición.
+- Respondé ÚNICAMENTE con JSON válido.`,
+          },
+          {
+            role: "user",
+            content: JSON.stringify(input),
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.3,
+      })
+
+      const content = response.choices[0]?.message?.content
+      if (!content) {
+        logger.error("generateBatchSessionSummaries: empty response", { start, chunkSize: chunk.length })
+        continue
+      }
+
+      const parsed = JSON.parse(content) as { summaries?: unknown[] }
+      if (!Array.isArray(parsed.summaries)) {
+        logger.error("generateBatchSessionSummaries: malformed response (no summaries array)", { start })
+        continue
+      }
+
+      for (let i = 0; i < chunk.length; i++) {
+        const item: unknown = parsed.summaries[i]
+        if (
+          item !== null &&
+          item !== undefined &&
+          typeof item === "object" &&
+          typeof (item as Record<string, unknown>).main_topic === "string"
+        ) {
+          results[start + i] = item as AiSummary
+        }
+        // else: remains null — session inserts without summary
+      }
+    } catch (err: unknown) {
+      logger.error("generateBatchSessionSummaries chunk failed — sessions will import without summaries", {
+        start,
+        chunkSize: chunk.length,
+        error: (err as Error).message,
+      })
+      // results[start..start+chunkSize-1] stay null; import continues
+    }
+  }
+
+  return results
 }
 
 export async function generateCaseSummary(summaries: AiSummary[]): Promise<string> {
