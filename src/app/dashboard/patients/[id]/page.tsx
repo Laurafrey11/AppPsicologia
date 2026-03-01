@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { SessionCard } from "@/components/SessionCard"
 import { NewSessionModal } from "@/components/NewSessionModal"
 import { ImportSessionsModal } from "@/components/ImportSessionsModal"
+import { PatientDocuments } from "@/components/PatientDocuments"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
 import { WaveText } from "@/components/ui/wave-text"
@@ -286,6 +287,9 @@ export default function PatientDetailPage() {
           </div>
         )}
       </section>
+
+      {/* Documents */}
+      {token && <PatientDocuments patientId={id} token={token} />}
 
       {/* Privacy & Data Management */}
       <section className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5 space-y-4">
