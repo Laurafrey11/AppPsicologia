@@ -9,6 +9,7 @@ export type Patient = {
   reason: string
   case_summary: string | null
   is_active: boolean
+  historical_import_done: boolean
   recording_consent_at: string | null
   created_at: string
 }
@@ -95,7 +96,11 @@ export async function deletePatient(
 export async function updatePatient(
   id: string,
   psychologistId: string,
-  data: UpdatePatientInput & { case_summary?: string; recording_consent_at?: string | null }
+  data: UpdatePatientInput & {
+    case_summary?: string
+    recording_consent_at?: string | null
+    historical_import_done?: boolean
+  }
 ): Promise<Patient> {
   const { data: patient, error } = await supabaseAdmin
     .from("patients")

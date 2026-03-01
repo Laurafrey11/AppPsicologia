@@ -58,10 +58,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     let rows: Array<{ fecha: string; texto: string }> = []
 
     const MAX_TXT_CHARS = 50_000
+    const MAX_IMPORT_ROWS = 200
 
     if (ext === "txt") {
-      // Gate: historical import is only allowed at the start of treatment
+      // Step 3 — count existing sessions for this patient (all time)
       const existingCount = await countSessionsByPatient(patientId, user.id)
+      // Step 4
       if (existingCount > 5) {
         return NextResponse.json(
           {
@@ -72,6 +74,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         )
       }
 
+      // Step 5 — verify historical import hasn't been done before
+      if (patient.historical_import_done) {
+        return NextResponse.json(
+          { error: "La importación histórica ya fue realizada para este paciente." },
+          { status: 409 }
+        )
+      }
+
+      // Steps 6–8 — read and validate file content
       const text = await file.text()
       if (text.length > MAX_TXT_CHARS) {
         return NextResponse.json(
@@ -82,11 +93,44 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       if (!text.trim()) {
         return NextResponse.json({ error: "El archivo de texto está vacío" }, { status: 400 })
       }
+
+      // Steps 9–10 — verify monthly limit BEFORE calling OpenAI
+      const [limits, currentCount] = await Promise.all([
+        getOrCreateLimits(user.id),
+        countSessionsThisMonth(user.id),
+      ])
+      const remaining = limits.max_sessions_per_month - currentCount
+      if (remaining <= 0) {
+        return NextResponse.json(
+          {
+            error: `Límite de sesiones mensuales agotado. No podés importar sesiones este mes.`,
+          },
+          { status: 429 }
+        )
+      }
+
+      // Step 11 — call OpenAI only after all guards have passed
       rows = await extractSessionsFromText(text)
+
+      // Steps 12–14 — validate extracted rows and re-check limit
       if (rows.length === 0) {
         return NextResponse.json(
           { error: "No se pudieron detectar sesiones en el archivo. Asegurate de que el texto incluya fechas identificables." },
           { status: 400 }
+        )
+      }
+      if (rows.length > MAX_IMPORT_ROWS) {
+        return NextResponse.json(
+          { error: `Máximo ${MAX_IMPORT_ROWS} sesiones por importación. Se detectaron ${rows.length}.` },
+          { status: 400 }
+        )
+      }
+      if (rows.length > remaining) {
+        return NextResponse.json(
+          {
+            error: `Límite de sesiones mensuales insuficiente. Podés importar hasta ${remaining} sesión${remaining !== 1 ? "es" : ""} este mes, se detectaron ${rows.length}.`,
+          },
+          { status: 429 }
         )
       }
     } else if (ext === "csv") {
@@ -126,28 +170,28 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "El archivo no contiene filas de datos" }, { status: 400 })
     }
 
-    // Hard cap: prevent mass import abuse regardless of plan limits
-    const MAX_IMPORT_ROWS = 200
-    if (rows.length > MAX_IMPORT_ROWS) {
-      return NextResponse.json(
-        { error: `Máximo ${MAX_IMPORT_ROWS} sesiones por importación. El archivo tiene ${rows.length} filas.` },
-        { status: 400 }
-      )
-    }
-
-    // Check session limit before importing
-    const [limits, currentCount] = await Promise.all([
-      getOrCreateLimits(user.id),
-      countSessionsThisMonth(user.id),
-    ])
-    const remaining = limits.max_sessions_per_month - currentCount
-    if (rows.length > remaining) {
-      return NextResponse.json(
-        {
-          error: `Límite de sesiones mensuales insuficiente. Podés importar hasta ${Math.max(0, remaining)} sesión${remaining !== 1 ? "es" : ""} este mes.`,
-        },
-        { status: 429 }
-      )
+    // For CSV/XLSX: apply hard cap and monthly limit check here
+    // (TXT already ran these checks above, before calling OpenAI)
+    if (ext !== "txt") {
+      if (rows.length > MAX_IMPORT_ROWS) {
+        return NextResponse.json(
+          { error: `Máximo ${MAX_IMPORT_ROWS} sesiones por importación. El archivo tiene ${rows.length} filas.` },
+          { status: 400 }
+        )
+      }
+      const [limits, currentCount] = await Promise.all([
+        getOrCreateLimits(user.id),
+        countSessionsThisMonth(user.id),
+      ])
+      const remaining = limits.max_sessions_per_month - currentCount
+      if (rows.length > remaining) {
+        return NextResponse.json(
+          {
+            error: `Límite de sesiones mensuales insuficiente. Podés importar hasta ${Math.max(0, remaining)} sesión${remaining !== 1 ? "es" : ""} este mes.`,
+          },
+          { status: 429 }
+        )
+      }
     }
 
     let imported = 0
@@ -197,8 +241,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
     }
 
-    // Regenerate case summary after import
+    // Steps 16 + 17 (TXT) / shared post-insert work
     if (imported > 0) {
+      // Regenerate case summary
       try {
         const allSummaries = await findSessionSummariesByPatient(patientId, user.id)
         const parsedSummaries = allSummaries
@@ -216,6 +261,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           patientId,
           error: (err as Error).message,
         })
+      }
+
+      // Step 17 — mark historical import as done (TXT only)
+      if (ext === "txt") {
+        try {
+          await updatePatient(patientId, user.id, { historical_import_done: true })
+        } catch (err) {
+          logger.error("Failed to mark historical_import_done", {
+            patientId,
+            error: (err as Error).message,
+          })
+        }
       }
     }
 
