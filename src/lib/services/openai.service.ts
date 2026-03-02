@@ -77,27 +77,29 @@ export async function extractSessionsFromText(
   text: string
 ): Promise<Array<{ fecha: string; texto: string }>> {
   const openai = getOpenAI()
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `Extraé sesiones clínicas del texto. Reglas:
-- Identificá fecha y texto de cada sesión.
-- Devolvé como máximo 15 sesiones. Si hay más, priorizá las más recientes.
-- Convertí cualquier fecha a formato YYYY-MM-DD.
-- No inventés, no resumás, no analices — solo estructurá el texto tal como está.
-- Respondé ÚNICAMENTE con este JSON, sin texto adicional:
-{"sessions":[{"fecha":"YYYY-MM-DD","texto":"texto de la sesión"}]}`,
-      },
-      {
-        role: "user",
-        content: text,
-      },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0,
-  })
+  // AbortSignal.timeout(8000): throws TimeoutError after 8s so the route can
+  // return a controlled 504 instead of being killed by Vercel's 10s wall.
+  const response = await openai.chat.completions.create(
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Extract clinical sessions from the text. Output JSON only:
+{"sessions":[{"fecha":"YYYY-MM-DD","texto":"exact session text"}]}
+Rules: max 10 sessions, convert any date to YYYY-MM-DD, no summaries, no analysis, no extra text.`,
+        },
+        {
+          role: "user",
+          content: text,
+        },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 1500,
+    },
+    { signal: AbortSignal.timeout(8_000) }
+  )
   const content = response.choices[0]?.message?.content
   if (!content) throw new Error("OpenAI no devolvió respuesta al extraer sesiones")
   const parsed = JSON.parse(content) as { sessions?: unknown }

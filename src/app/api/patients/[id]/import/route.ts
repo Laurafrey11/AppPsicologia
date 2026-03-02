@@ -25,7 +25,7 @@ export const maxDuration = 10
 //   TXT  → 1 (extract) + 1 (batch summaries ≤ 10) + 1 (case summary) = 3 calls
 //   CSV/XLSX → 0 + 1 (batch summaries ≤ 10) + 1 (case summary) = 2 calls
 const MAX_IMPORT_ROWS       = 100    // hard cap on rows per file
-const MAX_TXT_EXTRACT_CHARS = 25_000 // max chars for TXT import — calibrated to Vercel 10s timeout
+const MAX_TXT_EXTRACT_CHARS = 15_000 // max chars for TXT import — calibrated to Vercel 10s timeout
 const SUMMARY_THRESHOLD     = 15     // if rows > this, only the last N get summaries
 const LAST_N_WITH_SUMMARY   = 5      // how many sessions receive an AI summary
 
@@ -107,8 +107,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
       // OpenAI call 1 of 3: extract sessions from free-form text.
       // Monthly-limit enforcement happens in Postgres (process_import_initial).
+      // 8s hard timeout — returns a controlled 504 instead of letting Vercel kill the function.
       console.time("[import] extract-sessions")
-      rows = await extractSessionsFromText(text)
+      try {
+        rows = await extractSessionsFromText(text)
+      } catch (err: unknown) {
+        console.timeEnd("[import] extract-sessions")
+        const name = (err as Error).name
+        if (name === "AbortError" || name === "TimeoutError") {
+          return NextResponse.json(
+            {
+              error: "La extracción de sesiones tardó demasiado. El archivo tiene demasiado texto — reducilo a menos de 10 000 caracteres e intentá de nuevo.",
+              code: "EXTRACTION_TIMEOUT",
+            },
+            { status: 504 }
+          )
+        }
+        throw err
+      }
       console.timeEnd("[import] extract-sessions")
 
       if (rows.length === 0) {
