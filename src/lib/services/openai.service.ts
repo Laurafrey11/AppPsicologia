@@ -236,7 +236,7 @@ export async function generateCaseSummary(summaries: AiSummary[]): Promise<strin
         content: `Eres un asistente para psicólogos clínicos. Dado el historial de resúmenes de sesiones de un paciente,
 genera un resumen clínico acumulativo en texto corrido (no JSON).
 Incluye: patrones recurrentes, evolución emocional, mecanismos de defensa prevalentes, temáticas persistentes e hipótesis clínicas consolidadas.
-Sé conciso (máximo 400 palabras). Usa lenguaje profesional. No incluyas diagnósticos.`,
+Máximo 3 párrafos. Usa lenguaje profesional. No incluyas diagnósticos.`,
       },
       {
         role: "user",
