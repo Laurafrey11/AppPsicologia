@@ -15,6 +15,9 @@ import Papa from "papaparse"
 import * as XLSX from "xlsx"
 import type { AiSummary } from "@/lib/repositories/session.repository"
 
+// Vercel route segment config — caps execution to 10s on Hobby plan.
+export const maxDuration = 10
+
 // ── Serverless budget (Vercel Hobby: 10s timeout) ────────────────────────────
 // Worst-case OpenAI calls:
 //   TXT  → 1 (extract) + 1 (batch summaries ≤ 10) + 1 (case summary) = 3 calls
