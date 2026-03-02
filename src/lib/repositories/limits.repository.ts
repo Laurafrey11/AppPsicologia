@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { logger } from "@/lib/logger/logger"
 
 export type SubscriptionLimits = {
   id: string
@@ -115,7 +116,15 @@ export async function incrementAiAssistCount(
     p_psychologist_id: psychologistId,
     p_month: month,
   })
-  if (error) throw new Error(error.message)
+  if (error) {
+    // Fail-open: counter not incremented but don't crash the response.
+    logger.error("incrementAiAssistCount DB error — counter not incremented", {
+      error: error.message,
+      psychologistId,
+      month,
+    })
+    return 0
+  }
   return data as number
 }
 
@@ -128,6 +137,18 @@ export async function incrementAiAssistCount(
  *
  * Calls the `check_and_add_cost` SQL function.
  */
+/**
+ * Atomically checks the monthly AI cost cap and, if within budget, adds the
+ * cost delta in a single DB transaction.
+ *
+ * Returns true  → request is within budget, cost has been charged.
+ * Returns false → monthly cap reached, caller must block the AI feature.
+ *
+ * On DB errors (function missing, connection issue, etc.) logs the incident
+ * and returns true (fail-open) so a technical misconfiguration never blocks
+ * the psychologist from using the app. The DB-level function must be installed
+ * by running supabase/functions.sql in the Supabase SQL Editor.
+ */
 export async function checkAndAddCost(
   psychologistId: string,
   month: string,
@@ -138,6 +159,18 @@ export async function checkAndAddCost(
     p_month:           month,
     p_cost_delta:      costDelta,
   })
-  if (error) throw new Error(error.message)
+  if (error) {
+    // Technical error (function not installed, connection issue, etc.).
+    // Fail-open: allow the request and log the incident for investigation.
+    // Cost protection degrades gracefully; MONTHLY_COST_CAP is still a last
+    // resort when the function is healthy.
+    logger.error("checkAndAddCost DB error — allowing request (fail-open)", {
+      error: error.message,
+      psychologistId,
+      month,
+      costDelta,
+    })
+    return true
+  }
   return data as boolean
 }

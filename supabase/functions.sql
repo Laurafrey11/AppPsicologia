@@ -531,6 +531,44 @@ END;
 $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- increment_ai_assist
+--
+-- Atomicamente incrementa ai_assist_count en 1 y retorna el nuevo valor.
+-- Garantiza que la fila de usage existe antes de actualizar.
+-- Llamado desde ai-assist/route.ts luego de un completion exitoso.
+--
+-- SECURITY INVOKER: called via supabaseAdmin (service role).
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION increment_ai_assist(
+  p_psychologist_id UUID,
+  p_month           TEXT
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$
+DECLARE
+  v_new_count INTEGER;
+BEGIN
+  -- Garantizar que la fila de usage existe (idempotente).
+  INSERT INTO usage_tracking (
+    psychologist_id, month, sessions_count, audio_minutes, ai_assist_count, estimated_cost
+  )
+  VALUES (p_psychologist_id, p_month, 0, 0, 0, 0)
+  ON CONFLICT (psychologist_id, month) DO NOTHING;
+
+  -- Incremento atómico con RETURNING: la DB hace el +1, JS nunca computa el valor.
+  UPDATE usage_tracking
+     SET ai_assist_count = ai_assist_count + 1
+   WHERE psychologist_id = p_psychologist_id
+     AND month = p_month
+  RETURNING ai_assist_count INTO v_new_count;
+
+  RETURN v_new_count;
+END;
+$$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- audit_logs
 --
 -- Append-only security audit trail. Written exclusively via supabaseAdmin
@@ -712,3 +750,11 @@ BEGIN
   RETURN v_session;
 END;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Reload PostgREST schema cache
+--
+-- Ejecutar después de crear o modificar funciones para que supabase.rpc()
+-- las encuentre de inmediato, sin necesidad de reiniciar el proyecto.
+-- ─────────────────────────────────────────────────────────────────────────────
+NOTIFY pgrst, 'reload schema';
