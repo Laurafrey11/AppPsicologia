@@ -344,10 +344,11 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             <div className="flex items-center gap-2 mb-1">
               <Mic className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
               <span className="text-xs font-medium text-gray-500 dark:text-slate-400">Grabación de voz</span>
-              <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">máx. 4 min</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">recom. &lt; 2 min · límite 4 min</span>
             </div>
             <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">
-              Al terminar de grabar, la IA transcribe automáticamente al campo de notas.
+              Al terminar de grabar, la IA transcribe automáticamente al campo de notas.{" "}
+              <span className="text-amber-600 dark:text-amber-400">Grabá fragmentos breves para evitar cortes por timeout del servidor.</span>
             </p>
             {transcribing ? (
               <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">

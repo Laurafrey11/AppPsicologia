@@ -16,6 +16,70 @@ interface Props {
   onImported: () => void
 }
 
+/**
+ * Detects whether dates in a TXT file run oldest→newest or newest→oldest.
+ * Compares the first date found in the text with the last date found.
+ * Returns "unknown" when fewer than 2 dates are detected or they're equal.
+ */
+function detectDateOrder(text: string): "oldest-first" | "newest-first" | "unknown" {
+  const DATE_RE = /\b(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4}|\d{1,2}-\d{1,2}-\d{4})\b/g
+  const matches = [...text.matchAll(DATE_RE)]
+  if (matches.length < 2) return "unknown"
+
+  function toTs(s: string): number | null {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const d = new Date(s + "T12:00:00")
+      return isNaN(d.getTime()) ? null : d.getTime()
+    }
+    const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+    if (m1) {
+      const d = new Date(`${m1[3]}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}T12:00:00`)
+      return isNaN(d.getTime()) ? null : d.getTime()
+    }
+    const m2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+    if (m2) {
+      const d = new Date(`${m2[3]}-${m2[2].padStart(2, "0")}-${m2[1].padStart(2, "0")}T12:00:00`)
+      return isNaN(d.getTime()) ? null : d.getTime()
+    }
+    return null
+  }
+
+  const firstTs = toTs(matches[0][0])
+  const lastTs  = toTs(matches[matches.length - 1][0])
+  if (firstTs === null || lastTs === null) return "unknown"
+  if (firstTs < lastTs) return "oldest-first"
+  if (firstTs > lastTs) return "newest-first"
+  return "unknown"
+}
+
+/**
+ * Truncates text to TXT_TRIM_CHARS keeping the OLDEST content,
+ * respecting paragraph boundaries (\n\n then \n, then hard cut).
+ *
+ * oldest-first / unknown → keep head (slice from start)
+ * newest-first           → keep tail (slice from end)
+ */
+function truncateToOldest(
+  raw: string,
+  maxChars: number,
+  trimTarget: number
+): string {
+  if (raw.length <= maxChars) return raw
+  const order = detectDateOrder(raw)
+  if (order === "newest-first") {
+    // Oldest sessions are at the bottom — keep the tail.
+    const searchFrom = Math.max(0, raw.length - trimTarget)
+    let cutAt = raw.indexOf("\n\n", searchFrom)
+    if (cutAt === -1) cutAt = raw.indexOf("\n", searchFrom)
+    return (cutAt !== -1 ? raw.slice(cutAt) : raw.slice(searchFrom)).trimStart()
+  }
+  // oldest-first or unknown — keep the head.
+  let cutAt = raw.lastIndexOf("\n\n", trimTarget)
+  if (cutAt === -1) cutAt = raw.lastIndexOf("\n", trimTarget)
+  if (cutAt === -1) cutAt = trimTarget
+  return raw.slice(0, cutAt).trimEnd()
+}
+
 function parseDate(dateStr: string): string | null {
   const s = dateStr.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
@@ -70,25 +134,15 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
           return
         }
 
-        let text = raw
-        let truncated = false
-
-        if (raw.length > TXT_MAX_CHARS) {
-          // Find the last paragraph break (double newline) before TXT_TRIM_CHARS.
-          // Fall back to the last single newline, then to a hard cut.
-          // This guarantees we never split a session in the middle of a line.
-          let cutAt = raw.lastIndexOf("\n\n", TXT_TRIM_CHARS)
-          if (cutAt === -1) cutAt = raw.lastIndexOf("\n", TXT_TRIM_CHARS)
-          if (cutAt === -1) cutAt = TXT_TRIM_CHARS
-          text = raw.slice(0, cutAt).trimEnd()
-          truncated = true
-          // Truncation is applied JIT in handleImport — not here — to avoid
-          // the React state timing issue where setFile() may not commit before
-          // handleImport reads the file state.
-        }
+        const truncated = raw.length > TXT_MAX_CHARS
+        // Compute the preview from the portion that WILL actually be imported,
+        // so the preview reflects oldest-content-first regardless of file order.
+        // Actual upload truncation is re-applied JIT in handleImport to avoid
+        // React state timing issues.
+        const previewText = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
 
         setIsFreeTxt(true)
-        setTxtPreview(text.slice(0, 500))
+        setTxtPreview(previewText.slice(0, 500))
         setTxtTruncated(truncated)
       }
       reader.readAsText(f)
@@ -136,16 +190,16 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
     setImporting(true)
     setParseError(null)
     try {
-      // JIT truncation: apply the 50k-char limit here, synchronously, so we
-      // never depend on React state having committed the trimmed File.
+      // JIT truncation: apply here, just before FormData, so we never depend
+      // on React state having committed the trimmed File.
+      // truncateToOldest detects date order and keeps the OLDEST content,
+      // regardless of whether the file is oldest-first or newest-first.
       let uploadFile = file
       if (isFreeTxt) {
         const raw = await file.text()
-        if (raw.length > TXT_MAX_CHARS) {
-          let cutAt = raw.lastIndexOf("\n\n", TXT_TRIM_CHARS)
-          if (cutAt === -1) cutAt = raw.lastIndexOf("\n", TXT_TRIM_CHARS)
-          if (cutAt === -1) cutAt = TXT_TRIM_CHARS
-          uploadFile = new File([raw.slice(0, cutAt).trimEnd()], file.name, { type: "text/plain" })
+        const trimmed = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
+        if (trimmed.length !== raw.length) {
+          uploadFile = new File([trimmed], file.name, { type: "text/plain" })
         }
       }
       const fd = new FormData()

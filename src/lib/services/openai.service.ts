@@ -19,14 +19,17 @@ export async function transcribeAudio(
 ): Promise<{ transcription: string; durationMinutes: number }> {
   const openai = getOpenAI()
   const file = new File([audioBlob], fileName, { type: audioBlob.type || "audio/webm" })
+  // "json" returns { text } immediately — no segment/duration metadata.
+  // This minimises response payload and avoids unnecessary parsing overhead.
+  // durationMinutes is not available in this format; audio quota checks use
+  // the monthly cost cap instead, so returning 0 here is safe.
   const result = await openai.audio.transcriptions.create({
     file,
     model: "whisper-1",
     language: "es",
-    response_format: "verbose_json",
+    response_format: "json",
   })
-  const durationMinutes = Math.ceil((result as unknown as { duration?: number }).duration ?? 0) / 60
-  return { transcription: result.text, durationMinutes }
+  return { transcription: result.text, durationMinutes: 0 }
 }
 
 export async function generateSessionSummary(text: string): Promise<AiSummary> {
