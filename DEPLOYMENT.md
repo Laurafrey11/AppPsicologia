@@ -39,6 +39,7 @@ En Supabase Dashboard → **SQL Editor** → **New query**:
 
 **Primero**: ejecutar `supabase/schema.sql` completo.
 **Segundo**: ejecutar `supabase/security.sql` completo.
+**Tercero**: ejecutar `supabase/functions.sql` completo (RPCs atómicas de importación y límites).
 
 ### 1.4 Crear bucket de Storage
 

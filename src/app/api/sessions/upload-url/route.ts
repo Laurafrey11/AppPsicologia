@@ -45,7 +45,18 @@ export async function GET(req: Request) {
       .createSignedUploadUrl(storagePath)
 
     if (error || !data) {
-      throw new Error(error?.message ?? "No se pudo generar la URL de subida")
+      // Most common cause: the "session-audio" Storage bucket was not created in
+      // the Supabase dashboard (Storage → New bucket, name: "session-audio",
+      // private, 100 MB limit). See DEPLOYMENT.md step 1.4.
+      logger.error("createSignedUploadUrl failed — bucket may not exist", {
+        supabaseError: error?.message,
+        storagePath,
+      })
+      throw new Error(
+        error?.message?.includes("Bucket not found") || error?.message?.includes("not found")
+          ? "El bucket 'session-audio' no existe. Crealo en Supabase Dashboard → Storage → New bucket (ver DEPLOYMENT.md paso 1.4)."
+          : (error?.message ?? "No se pudo generar la URL de subida")
+      )
     }
 
     logger.info("Upload URL generated", { psychologistId: user.id, storagePath })
