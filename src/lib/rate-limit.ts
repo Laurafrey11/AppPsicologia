@@ -85,18 +85,10 @@ export async function checkRateLimit(
   userId: string
 ): Promise<NextResponse | null> {
   if (!limiter) {
-    if (process.env.NODE_ENV === "production") {
-      // Env vars were not available at module init (e.g. missing in Vercel settings).
-      // Fail-closed: refuse the request rather than skip rate limiting.
-      return NextResponse.json(
-        {
-          error: "Servicio temporalmente no disponible. Configuración de rate limiting incompleta.",
-          code: "RATE_LIMIT_UNAVAILABLE",
-        },
-        { status: 503 }
-      )
-    }
-    // Development: fail-open.
+    // Upstash env vars not set — fail-open in all environments.
+    // Rate limiting is a best-effort protection layer; the app must remain
+    // functional even when Redis credentials are absent or misconfigured.
+    // DB-level quotas (checkAudioLimit, checkAndAddCost) still protect the backend.
     return null
   }
 
@@ -124,15 +116,8 @@ export async function checkRateLimit(
 
     return null
   } catch {
-    if (process.env.NODE_ENV === "production") {
-      // Redis unreachable in production: fail-closed.
-      // Better to return 503 than to skip rate limiting.
-      return NextResponse.json(
-        { error: "Servicio temporalmente no disponible.", code: "RATE_LIMIT_UNAVAILABLE" },
-        { status: 503 }
-      )
-    }
-    // Development: Redis unreachable → fail-open.
+    // Redis unreachable — fail-open so the app stays functional.
+    // DB-level quotas remain active as the primary abuse protection.
     return null
   }
 }
