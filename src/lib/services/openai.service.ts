@@ -82,13 +82,13 @@ export async function extractSessionsFromText(
     messages: [
       {
         role: "system",
-        content: `Extraé sesiones clínicas del texto que envía el usuario.
-Cada sesión tiene una fecha y un cuerpo de texto.
-Devolvé JSON con esta forma exacta:
-{ "sessions": [ { "fecha": "YYYY-MM-DD", "texto": "contenido completo de la sesión" } ] }
-Si la fecha está en formato DD/MM/YYYY, convertila a YYYY-MM-DD.
-No inventés sesiones. No resumás. Solo estructurá.
-Respondé ÚNICAMENTE con JSON válido, sin texto adicional.`,
+        content: `Extraé sesiones clínicas del texto. Reglas:
+- Identificá fecha y texto de cada sesión.
+- Devolvé como máximo 15 sesiones. Si hay más, priorizá las más recientes.
+- Convertí cualquier fecha a formato YYYY-MM-DD.
+- No inventés, no resumás, no analices — solo estructurá el texto tal como está.
+- Respondé ÚNICAMENTE con este JSON, sin texto adicional:
+{"sessions":[{"fecha":"YYYY-MM-DD","texto":"texto de la sesión"}]}`,
       },
       {
         role: "user",

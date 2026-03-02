@@ -25,9 +25,9 @@ export const maxDuration = 10
 //   TXT  → 1 (extract) + 1 (batch summaries ≤ 10) + 1 (case summary) = 3 calls
 //   CSV/XLSX → 0 + 1 (batch summaries ≤ 10) + 1 (case summary) = 2 calls
 const MAX_IMPORT_ROWS       = 100    // hard cap on rows per file
-const MAX_TXT_EXTRACT_CHARS = 50_000 // max chars accepted for TXT import (backend defense)
-const SUMMARY_THRESHOLD     = 30      // if rows > this, only the last N get summaries
-const LAST_N_WITH_SUMMARY   = 10      // how many sessions receive an AI summary
+const MAX_TXT_EXTRACT_CHARS = 25_000 // max chars for TXT import — calibrated to Vercel 10s timeout
+const SUMMARY_THRESHOLD     = 15     // if rows > this, only the last N get summaries
+const LAST_N_WITH_SUMMARY   = 5      // how many sessions receive an AI summary
 
 /** Parses a date string in YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY format. Returns ISO date or null. */
 function parseDate(dateStr: string): string | null {
@@ -93,7 +93,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
 
       // Backend defense: reject if frontend bypass sent an oversized payload.
-      // (Frontend already trims to 40 000 chars before upload.)
+      // (Frontend already trims to 22 000 chars before upload.)
       const text = await file.text()
       if (text.length > MAX_TXT_EXTRACT_CHARS) {
         return NextResponse.json(
@@ -107,7 +107,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
       // OpenAI call 1 of 3: extract sessions from free-form text.
       // Monthly-limit enforcement happens in Postgres (process_import_initial).
+      console.time("[import] extract-sessions")
       rows = await extractSessionsFromText(text)
+      console.timeEnd("[import] extract-sessions")
 
       if (rows.length === 0) {
         return NextResponse.json(
@@ -217,11 +219,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (rowsToSummarize.length > 0) {
       try {
         // OpenAI call 2 of 3 (or 1 of 2 for CSV/XLSX)
+        console.time("[import] batch-summaries")
         const generated = await generateBatchSessionSummaries(rowsToSummarize)
+        console.timeEnd("[import] batch-summaries")
         for (let i = 0; i < generated.length; i++) {
           batchSummaries[summaryStartIndex + i] = generated[i]
         }
       } catch (err: unknown) {
+        console.timeEnd("[import] batch-summaries")
         logger.error("generateBatchSessionSummaries failed — sessions will import without summaries", {
           patientId,
           summaryStartIndex,
@@ -325,7 +330,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           .filter((s): s is AiSummary => s !== null)
         if (parsedSummaries.length > 0) {
           // OpenAI call 3 of 3 (or 2 of 2 for CSV/XLSX)
+          console.time("[import] case-summary")
           const caseSummary = await generateCaseSummary(parsedSummaries)
+          console.timeEnd("[import] case-summary")
           await updatePatient(patientId, user.id, { case_summary: caseSummary })
         }
       } catch (err) {

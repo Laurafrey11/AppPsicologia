@@ -112,8 +112,8 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const TXT_MAX_CHARS  = 50_000   // backend hard limit
-  const TXT_TRIM_CHARS = 40_000   // trim target when file exceeds max
+  const TXT_MAX_CHARS  = 25_000   // backend hard limit (calibrated to Vercel 10s timeout)
+  const TXT_TRIM_CHARS = 22_000   // trim target when file exceeds max
 
   function handleFileSelect(f: File) {
     setFile(f)
@@ -242,7 +242,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
 
         <p className="text-xs text-gray-500 dark:text-slate-400">
           <span className="font-semibold text-gray-700 dark:text-slate-300">TXT</span>{" "}
-          — texto libre, OpenAI extrae fecha y contenido automáticamente (máx. 50 000 caracteres).{" "}
+          — texto libre, OpenAI extrae fecha y contenido automáticamente (máx. 25 000 caracteres).{" "}
           <span className="font-semibold text-gray-700 dark:text-slate-300">CSV / XLSX</span>{" "}
           — requieren columnas <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">fecha</code> y{" "}
           <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">texto</code>.
@@ -340,12 +340,11 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
                 {txtTruncated && (
                   <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
                     <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-0.5">
-                      Archivo recortado automáticamente
+                      Archivo grande detectado — límite de {(TXT_MAX_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres
                     </p>
                     <p className="text-xs text-amber-700 dark:text-amber-400">
-                      El archivo supera el límite permitido de{" "}
-                      {(TXT_MAX_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres.
-                      Se importará únicamente el tramo más antiguo hasta el máximo permitido.
+                      Para garantizar la precisión dentro del tiempo disponible, se procesarán
+                      las sesiones más antiguas del archivo (hasta {(TXT_MAX_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres).
                       Solo puede realizarse una importación histórica por paciente.
                     </p>
                   </div>
