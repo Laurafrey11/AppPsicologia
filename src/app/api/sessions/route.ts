@@ -12,15 +12,11 @@ import { logger } from "@/lib/logger/logger"
  * POST /api/sessions
  *
  * Creates a new session. Accepts JSON with:
- *   - patient_id (required)
- *   - raw_text   (optional manual notes)
- *   - audio_path (optional Supabase Storage path — client uploads audio directly to Storage)
- *
- * Audio upload flow:
- *   1. Client calls GET /api/sessions/upload-url to get a signed Storage URL
- *   2. Client PUTs the audio file directly to Supabase Storage
- *   3. Client POSTs here with the storage path
- *   This keeps audio out of the API route body (no 4.5MB Vercel limit issues).
+ *   - patient_id    (required)
+ *   - raw_text      (optional manual notes; may contain transcribed text from /api/sessions/transcribe)
+ *   - session_notes (optional structured clinical notes)
+ *   - fee           (optional)
+ *   - session_date  (optional)
  */
 export async function POST(req: Request) {
   try {
@@ -31,9 +27,8 @@ export async function POST(req: Request) {
     // ── Hard cost cap: atomically check + pre-charge estimated cost ───────────
     // Charges before the session is created so concurrent requests can't both
     // slip under the cap. check_and_add_cost uses SELECT FOR UPDATE internally.
-    const sessionCost = parsed.audio_path
-      ? AI_COSTS.TRANSCRIPTION + AI_COSTS.SESSION_SUMMARY + AI_COSTS.CASE_SUMMARY
-      : AI_COSTS.SESSION_SUMMARY + AI_COSTS.CASE_SUMMARY
+    // Transcription cost is charged separately in POST /api/sessions/transcribe.
+    const sessionCost = AI_COSTS.SESSION_SUMMARY + AI_COSTS.CASE_SUMMARY
     const costAllowed = await checkAndAddCost(
       user.id,
       new Date().toISOString().slice(0, 7),

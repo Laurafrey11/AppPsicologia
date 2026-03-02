@@ -11,7 +11,7 @@
 | Supabase Storage: **1GB** | ~10h de audio a 128kbps |
 | Supabase DB: **500MB** | Suficiente para miles de sesiones |
 
-**Workaround para el timeout**: El audio se sube directamente a Storage (no pasa por Vercel), lo que NO consume el timeout. El problema es la transcripción con Whisper. Si el audio es corto (5 min), el timeout de 10s es suficiente. Si el psicólogo graba sesiones completas de 1h, van a fallar.
+**Workaround para el timeout**: El audio se envía directamente a Whisper (ephemeral — no se guarda en Storage). WebM/Opus a 4 minutos ≈ 1-3 MB, dentro del límite de 4.5 MB de Vercel. El timeout de 10s es suficiente para notas de voz cortas.
 
 **Solución práctica para el MVP**: Usá la grabación para fragmentos cortos (notas de voz de 2-5 minutos), no sesiones completas.
 
@@ -41,15 +41,7 @@ En Supabase Dashboard → **SQL Editor** → **New query**:
 **Segundo**: ejecutar `supabase/security.sql` completo.
 **Tercero**: ejecutar `supabase/functions.sql` completo (RPCs atómicas de importación y límites).
 
-### 1.4 Crear bucket de Storage
-
-Storage → New bucket:
-- Name: `session-audio`
-- Public bucket: **NO** (deshabilitado — privado)
-- File size limit: 100MB
-- Allowed MIME types: `audio/webm,audio/mpeg,audio/mp4,audio/ogg,audio/wav`
-
-### 1.5 Configurar Auth
+### 1.4 Configurar Auth
 
 Authentication → Providers → Email:
 - Enable email signup: ✅

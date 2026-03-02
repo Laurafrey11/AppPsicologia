@@ -18,24 +18,12 @@ vi.mock("@/lib/repositories/session.repository", () => ({
 
 vi.mock("@/lib/services/limits.service", () => ({
   checkSessionLimit: vi.fn(),
-  checkAudioLimit: vi.fn(),
   recordSessionUsage: vi.fn(),
 }))
 
 vi.mock("@/lib/services/openai.service", () => ({
-  transcribeAudio: vi.fn(),
   generateSessionSummary: vi.fn(),
   generateCaseSummary: vi.fn(),
-}))
-
-vi.mock("@/lib/supabase-admin", () => ({
-  supabaseAdmin: {
-    storage: {
-      from: vi.fn(() => ({
-        download: vi.fn(),
-      })),
-    },
-  },
 }))
 
 vi.mock("@/lib/logger/logger", () => ({
@@ -45,7 +33,6 @@ vi.mock("@/lib/logger/logger", () => ({
 vi.mock("@/lib/repositories/audit.repository", () => ({
   logAuditEvent: vi.fn(),
   AUDIT_ACTIONS: {
-    AUDIO_PATH_UNAUTHORIZED:          "AUDIO_PATH_UNAUTHORIZED",
     MONTHLY_SESSION_LIMIT_EXCEEDED:   "MONTHLY_SESSION_LIMIT_EXCEEDED",
     MONTHLY_AI_ASSIST_LIMIT_EXCEEDED: "MONTHLY_AI_ASSIST_LIMIT_EXCEEDED",
     IMPORT_CONSECUTIVE_ERRORS:        "IMPORT_CONSECUTIVE_ERRORS",
@@ -55,9 +42,8 @@ vi.mock("@/lib/repositories/audit.repository", () => ({
 
 import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
 import { insertSessionWithinLimit, findSessionsByPatient, findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
-import { checkSessionLimit, checkAudioLimit, recordSessionUsage } from "@/lib/services/limits.service"
-import { transcribeAudio, generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
-import { supabaseAdmin } from "@/lib/supabase-admin"
+import { checkSessionLimit, recordSessionUsage } from "@/lib/services/limits.service"
+import { generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
 
 const mockFindPatient = vi.mocked(findPatientById)
 const mockUpdatePatient = vi.mocked(updatePatient)
@@ -65,9 +51,7 @@ const mockInsertSession = vi.mocked(insertSessionWithinLimit)
 const mockFindSessions = vi.mocked(findSessionsByPatient)
 const mockFindSummaries = vi.mocked(findSessionSummariesByPatient)
 const mockCheckSession = vi.mocked(checkSessionLimit)
-const mockCheckAudio = vi.mocked(checkAudioLimit)
 const mockRecordUsage = vi.mocked(recordSessionUsage)
-const mockTranscribe = vi.mocked(transcribeAudio)
 const mockGenerateSummary = vi.mocked(generateSessionSummary)
 const mockGenerateCaseSummary = vi.mocked(generateCaseSummary)
 
@@ -119,7 +103,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockFindPatient.mockResolvedValue(mockPatient)
   mockCheckSession.mockResolvedValue(undefined)
-  mockCheckAudio.mockResolvedValue(undefined)
   mockRecordUsage.mockResolvedValue(undefined)
   mockInsertSession.mockResolvedValue(mockSession)
   mockFindSessions.mockResolvedValue([mockSession])
@@ -136,7 +119,6 @@ describe("createSession (text only)", () => {
   const textInput = {
     patient_id: PATIENT_ID,
     raw_text: "El paciente reporta mejoras en su estado de ánimo durante la semana.",
-    audio_path: undefined,
   }
 
   it("verifies patient ownership before proceeding", async () => {
@@ -147,11 +129,6 @@ describe("createSession (text only)", () => {
   it("checks session limit before inserting", async () => {
     await createSession(textInput, PSYCH_ID)
     expect(mockCheckSession).toHaveBeenCalledWith(PSYCH_ID)
-  })
-
-  it("does not call transcribeAudio when no audio_path", async () => {
-    await createSession(textInput, PSYCH_ID)
-    expect(mockTranscribe).not.toHaveBeenCalled()
   })
 
   it("generates an AI summary from raw_text", async () => {
@@ -165,9 +142,16 @@ describe("createSession (text only)", () => {
     expect(callArg.ai_summary).toBe(JSON.stringify(mockAiSummary))
   })
 
+  it("inserts the session with null transcription and audio_duration", async () => {
+    await createSession(textInput, PSYCH_ID)
+    const callArg = mockInsertSession.mock.calls[0][0]
+    expect(callArg.transcription).toBeNull()
+    expect(callArg.audio_duration).toBeNull()
+  })
+
   it("records session usage after successful insert", async () => {
     await createSession(textInput, PSYCH_ID)
-    expect(mockRecordUsage).toHaveBeenCalledWith(PSYCH_ID, 0) // 0 audio minutes
+    expect(mockRecordUsage).toHaveBeenCalledWith(PSYCH_ID, 0)
   })
 
   it("returns the created session", async () => {
@@ -201,7 +185,6 @@ describe("createSession — case_summary", () => {
   const textInput = {
     patient_id: PATIENT_ID,
     raw_text: "Notas de sesión.",
-    audio_path: undefined,
   }
 
   it("updates case_summary when session has an AI summary", async () => {

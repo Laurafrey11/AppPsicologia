@@ -12,7 +12,6 @@ const sessionNotesSchema = z.object({
 export const createSessionSchema = z.object({
   patient_id: z.string().uuid("patient_id debe ser un UUID válido"),
   raw_text: z.string().max(20000).optional().default(""),
-  audio_path: z.string().max(500).optional(),
   session_notes: sessionNotesSchema.optional(),
   fee: z.number().min(0).max(1000000).optional().nullable(),
   session_date: z.string().optional().nullable(),

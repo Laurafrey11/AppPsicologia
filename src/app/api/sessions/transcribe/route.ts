@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
-import { supabaseAdmin } from "@/lib/supabase-admin"
 import { transcribeAudio } from "@/lib/services/openai.service"
 import { checkAudioLimit } from "@/lib/services/limits.service"
 import { checkRateLimit, transcribeLimiter } from "@/lib/rate-limit"
@@ -9,33 +8,33 @@ import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repositor
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 
+// Vercel route segment config — caps execution to 10s on Hobby plan.
+export const maxDuration = 10
+
 /**
- * GET /api/sessions/transcribe?path=<storage_path>
+ * POST /api/sessions/transcribe
  *
- * Downloads audio from Supabase Storage and transcribes it with Whisper.
- * Called from NewSessionModal after the user records and uploads audio,
- * so the transcribed text can be shown and edited before saving.
+ * Receives an audio file via FormData ("audio" field) and transcribes it
+ * ephemerally with Whisper-1. Audio is never stored in Supabase Storage.
  *
- * Security:
- * - Verifies that the storage path belongs to the authenticated psychologist.
- * - Checks audio minute limits before and after transcription.
+ * Vercel Hobby body limit: 4.5 MB. WebM/Opus at 4 min ≈ 1–3 MB — fits comfortably.
  *
  * Returns: { transcription: string, duration_minutes: number }
  */
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
     const user = await getAuthUser(req)
 
     const rateLimitResponse = await checkRateLimit(transcribeLimiter, user.id)
     if (rateLimitResponse) return rateLimitResponse
 
-    const { searchParams } = new URL(req.url)
-    const path = searchParams.get("path")
-    if (!path) {
-      return NextResponse.json({ error: "path is required" }, { status: 400 })
+    const formData = await req.formData()
+    const file = formData.get("audio") as File | null
+    if (!file) {
+      return NextResponse.json({ error: "No se recibió ningún archivo de audio" }, { status: 400 })
     }
 
-    // ── Hard cost cap ─────────────────────────────────────────────────────────
+    // ── Hard cost cap ──────────────────────────────────────────────────────────
     const costAllowed = await checkAndAddCost(
       user.id,
       new Date().toISOString().slice(0, 7),
@@ -56,37 +55,22 @@ export async function GET(req: Request) {
       )
     }
 
-    // Ownership check: storage paths are scoped as "<psychologist_id>/filename"
-    // Prevents a user from transcribing audio uploaded by another psychologist.
-    if (!path.startsWith(`${user.id}/`)) {
-      logger.warn("Unauthorized transcribe attempt", { userId: user.id, path })
-      return NextResponse.json({ error: "Acceso no autorizado al archivo de audio" }, { status: 403 })
-    }
-
-    // Pre-check: ensure at least some audio quota remains before calling OpenAI
+    // Pre-check: ensure audio quota remains before calling OpenAI
     await checkAudioLimit(user.id, 1)
 
-    const { data: audioBlob, error: downloadError } = await supabaseAdmin
-      .storage
-      .from("session-audio")
-      .download(path)
-
-    if (downloadError || !audioBlob) {
-      throw new Error(downloadError?.message ?? "No se pudo descargar el audio")
-    }
-
-    const ext = path.split(".").pop() ?? "webm"
+    const audioBlob = new Blob([await file.arrayBuffer()], { type: file.type || "audio/webm" })
+    const ext = file.name.split(".").pop() ?? "webm"
     const { transcription, durationMinutes } = await transcribeAudio(audioBlob, `audio.${ext}`)
 
     // Post-check: verify the actual duration fits within remaining quota
     await checkAudioLimit(user.id, durationMinutes)
 
-    logger.info("Audio transcribed via modal", { path, durationMinutes })
+    logger.info("Audio transcribed via direct upload", { psychologistId: user.id, durationMinutes })
 
     return NextResponse.json({ transcription, duration_minutes: durationMinutes })
   } catch (error: unknown) {
     const err = error as Error
-    logger.error("GET /api/sessions/transcribe failed", { error: err.message })
+    logger.error("POST /api/sessions/transcribe failed", { error: err.message })
     if (error instanceof BaseError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode })
     }

@@ -7,12 +7,10 @@ import {
   type SessionNotes,
 } from "@/lib/repositories/session.repository"
 import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
-import { checkSessionLimit, checkAudioLimit, recordSessionUsage } from "@/lib/services/limits.service"
-import { transcribeAudio, generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
-import { supabaseAdmin } from "@/lib/supabase-admin"
+import { checkSessionLimit, recordSessionUsage } from "@/lib/services/limits.service"
+import { generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
 import { DomainError } from "@/lib/errors/DomainError"
 import { logger } from "@/lib/logger/logger"
-import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
 import type { CreateSessionInput } from "@/lib/validators/session.schema"
 
 export type CreateSessionResult = {
@@ -33,40 +31,7 @@ export async function createSession(
 
   await checkSessionLimit(psychologistId)
 
-  let transcription: string | null = null
-  let audioDurationMinutes = 0
-
-  if (input.audio_path) {
-    if (!input.audio_path.startsWith(`${psychologistId}/`)) {
-      logAuditEvent(psychologistId, AUDIT_ACTIONS.AUDIO_PATH_UNAUTHORIZED, {
-        audio_path: input.audio_path,
-        patient_id: input.patient_id,
-      })
-      throw new DomainError("Audio path no autorizado")
-    }
-
-    const { data: audioBlob, error: downloadError } = await supabaseAdmin
-      .storage
-      .from("session-audio")
-      .download(input.audio_path)
-
-    if (downloadError || !audioBlob) {
-      throw new DomainError("No se pudo descargar el audio del storage")
-    }
-
-    await checkAudioLimit(psychologistId, 1)
-
-    const fileName = input.audio_path.split("/").pop() ?? "audio.webm"
-    const result = await transcribeAudio(audioBlob, fileName)
-    transcription = result.transcription
-    audioDurationMinutes = result.durationMinutes
-
-    await checkAudioLimit(psychologistId, audioDurationMinutes)
-
-    logger.info("Audio transcribed", { patientId: input.patient_id, durationMinutes: audioDurationMinutes })
-  }
-
-  // Build source text for AI — includes structured notes + free notes + transcription
+  // Build source text for AI — includes structured notes + free notes
   const notesText = input.session_notes
     ? [
         input.session_notes.motivo_consulta && `Motivo de consulta: ${input.session_notes.motivo_consulta}`,
@@ -78,7 +43,7 @@ export async function createSession(
       ].filter(Boolean).join("\n")
     : ""
 
-  const sourceText = [notesText, input.raw_text, transcription].filter(Boolean).join("\n\n")
+  const sourceText = [notesText, input.raw_text].filter(Boolean).join("\n\n")
 
   let aiSummaryObj: AiSummary | null = null
   if (sourceText.trim().length > 10) {
@@ -107,15 +72,15 @@ export async function createSession(
     patient_id: input.patient_id,
     psychologist_id: psychologistId,
     raw_text: input.raw_text ?? "",
-    transcription,
+    transcription: null,
     ai_summary: aiSummaryJson,
-    audio_duration: audioDurationMinutes > 0 ? Math.round(audioDurationMinutes) : null,
+    audio_duration: null,
     session_notes: sessionNotes,
     fee: input.fee ?? null,
     session_date: input.session_date ?? null,
   })
 
-  await recordSessionUsage(psychologistId, Math.round(audioDurationMinutes))
+  await recordSessionUsage(psychologistId, 0)
   logger.info("Session created", { sessionId: session.id })
 
   let caseSummaryUpdated = false

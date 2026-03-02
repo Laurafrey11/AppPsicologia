@@ -13,7 +13,7 @@ interface Props {
   onCreated: () => void
 }
 
-type UploadState = "idle" | "requesting-url" | "uploading" | "creating" | "done" | "error"
+type UploadState = "idle" | "creating" | "done" | "error"
 type AiAction = "summarize" | "condense" | "grammar"
 
 interface SessionNotes {
@@ -76,12 +76,10 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
     evolucion: "",
     plan_proximo: "",
   })
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [uploadedAudioPath, setUploadedAudioPath] = useState<string | null>(null)
   const [audioDurationMin, setAudioDurationMin] = useState(0)
+  const [transcribed, setTranscribed] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [state, setState] = useState<UploadState>("idle")
-  const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState<AiAction | null>(null)
   const [aiSuggestion, setAiSuggestion] = useState<string>("")
@@ -135,85 +133,49 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
 
   function handleVoiceRecorded(duration: number, blob?: Blob) {
     if (blob) {
-      setAudioBlob(blob)
-      setUploadedAudioPath(null)
+      setTranscribed(false)
       setAudioDurationMin(Math.round(duration / 60))
       // Auto-transcribe immediately on recording stop
       transcribeBlob(blob)
     }
   }
 
-  async function uploadAudioBlob(blob: Blob): Promise<string> {
-    const urlRes = await fetch("/api/sessions/upload-url?ext=webm", { headers: authHeaders() })
-    if (!urlRes.ok) {
-      const b = await urlRes.json().catch(() => ({}))
-      throw new Error(b.error ?? "No se pudo obtener la URL de subida")
-    }
-    const { upload_url, storage_path } = await urlRes.json()
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100))
-      })
-      xhr.addEventListener("load", () => xhr.status < 300 ? resolve() : reject(new Error(`Error ${xhr.status}`)))
-      xhr.addEventListener("error", () => reject(new Error("Error de red")))
-      xhr.open("PUT", upload_url)
-      xhr.setRequestHeader("Content-Type", "audio/webm")
-      xhr.send(blob)
-    })
-    return storage_path
-  }
-
   async function transcribeBlob(blob: Blob) {
     setError(null)
     setTranscribing(true)
-    setProgress(0)
     try {
-      setState("uploading")
-      const path = await uploadAudioBlob(blob)
-      setUploadedAudioPath(path)
-      setState("idle")
-      const res = await fetch(`/api/sessions/transcribe?path=${encodeURIComponent(path)}`, {
+      const fd = new FormData()
+      fd.append("audio", blob, "recording.webm")
+      const res = await fetch("/api/sessions/transcribe", {
+        method: "POST",
         headers: authHeaders(),
+        body: fd,
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`)
       setRawText(data.transcription)
       setAudioDurationMin(Math.round(data.duration_minutes))
+      setTranscribed(true)
       setTimeout(() => adjustHeight(), 0)
     } catch (err: unknown) {
       setError((err as Error).message)
-      setState("error")
     } finally {
       setTranscribing(false)
-      setState("idle")
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    setProgress(0)
 
     const hasNotes = Object.values(sessionNotes).some((v) => v.trim().length > 0)
-    if (!rawText.trim() && !audioBlob && !hasNotes) {
+    if (!rawText.trim() && !hasNotes) {
       setError("Completá al menos un campo para crear la sesión.")
       return
     }
 
+    setState("creating")
     try {
-      let audioPath: string | undefined
-      if (uploadedAudioPath) {
-        // Already uploaded during transcription
-        audioPath = uploadedAudioPath
-      } else if (audioBlob) {
-        // Upload now (user skipped transcription step)
-        setState("uploading")
-        audioPath = await uploadAudioBlob(audioBlob)
-      }
-
-      setState("creating")
-
       const sessionNotesPayload = hasNotes ? sessionNotes : undefined
       const feeNum = fee.trim() !== "" ? parseFloat(fee.replace(",", ".")) : undefined
 
@@ -224,7 +186,6 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
           patient_id: patientId,
           raw_text: rawText.trim(),
           session_date: sessionDate || today,
-          ...(audioPath ? { audio_path: audioPath } : {}),
           ...(sessionNotesPayload ? { session_notes: sessionNotesPayload } : {}),
           ...(feeNum != null && !isNaN(feeNum) ? { fee: feeNum } : {}),
         }),
@@ -241,11 +202,9 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
     }
   }
 
-  const isUploading = ["requesting-url", "uploading", "creating"].includes(state)
+  const isCreating = state === "creating"
   const submitLabel = {
     idle: "Guardar sesión",
-    "requesting-url": "Preparando...",
-    uploading: `Subiendo ${progress}%`,
     creating: "Procesando con IA...",
     done: "Listo",
     error: "Guardar sesión",
@@ -263,7 +222,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
           <button
             type="button"
             onClick={onClose}
-            disabled={isUploading}
+            disabled={isCreating}
             className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 text-xl leading-none disabled:opacity-40"
           >
             &times;
@@ -281,7 +240,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 type="date"
                 value={sessionDate}
                 onChange={(e) => setSessionDate(e.target.value)}
-                disabled={isUploading}
+                disabled={isCreating}
                 max={today}
                 className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500 transition-colors"
               />
@@ -296,7 +255,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                   step="0.01"
                   value={fee}
                   onChange={(e) => setFee(e.target.value)}
-                  disabled={isUploading}
+                  disabled={isCreating}
                   placeholder="0"
                   className="w-full pl-6 pr-3 py-2 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:border-blue-400 dark:focus:border-blue-500 transition-colors"
                 />
@@ -354,7 +313,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 maxLength={20000}
                 value={rawText}
                 onChange={(e) => { setRawText(e.target.value); adjustHeight() }}
-                disabled={isUploading}
+                disabled={isCreating}
                 className="w-full bg-transparent text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 px-3 pt-3 pb-10 text-sm resize-none focus:outline-none leading-relaxed"
                 style={{ minHeight: "80px" }}
                 placeholder="Escribí tus notas sobre la sesión..."
@@ -364,7 +323,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                   <button
                     key={action}
                     type="button"
-                    disabled={isUploading || aiLoading !== null}
+                    disabled={isCreating || aiLoading !== null}
                     onClick={() => handleAiAction(action)}
                     className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full border transition-colors disabled:opacity-40 ${
                       aiLoading === action
@@ -393,11 +352,9 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             {transcribing ? (
               <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">
                 <Mic className="w-4 h-4 text-blue-500 animate-pulse flex-shrink-0" />
-                <span className="text-sm text-blue-700 dark:text-blue-400 flex-1">
-                  {state === "uploading" ? `Subiendo ${progress}%...` : "Transcribiendo con IA..."}
-                </span>
+                <span className="text-sm text-blue-700 dark:text-blue-400 flex-1">Transcribiendo con IA...</span>
               </div>
-            ) : uploadedAudioPath ? (
+            ) : transcribed ? (
               <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
                 <span className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
@@ -405,9 +362,9 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 </span>
                 <button
                   type="button"
-                  onClick={() => { setAudioBlob(null); setUploadedAudioPath(null); setAudioDurationMin(0); setRawText("") }}
+                  onClick={() => { setTranscribed(false); setAudioDurationMin(0); setRawText("") }}
                   className="text-xs text-gray-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
-                  disabled={isUploading}
+                  disabled={isCreating}
                 >
                   Quitar
                 </button>
@@ -428,7 +385,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 <textarea
                   value={sessionNotes[key]}
                   onChange={(e) => updateNote(key, e.target.value)}
-                  disabled={isUploading}
+                  disabled={isCreating}
                   maxLength={2000}
                   rows={2}
                   placeholder={placeholder}
@@ -443,7 +400,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                           key={chipLabel}
                           type="button"
                           onClick={() => applyChip(key, chipLabel, replaceOnChip ?? false)}
-                          disabled={isUploading}
+                          disabled={isCreating}
                           className={`text-xs px-2.5 py-0.5 rounded-full border transition-colors ${
                             isSelected
                               ? "border-blue-400 dark:border-blue-600 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400"
@@ -460,18 +417,9 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             ))}
           </div>
 
-          {/* Progress */}
-          {state === "uploading" && (
-            <div>
-              <div className="h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} />
-              </div>
-              <p className="text-xs text-gray-400 dark:text-slate-500 text-right mt-0.5">{progress}%</p>
-            </div>
-          )}
           {state === "creating" && (
             <p className="text-xs text-blue-600 dark:text-blue-400 text-center animate-pulse">
-              Transcribiendo y analizando con IA...
+              Analizando con IA...
             </p>
           )}
           {error && (
@@ -486,14 +434,14 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
           <button
             type="button"
             onClick={onClose}
-            disabled={isUploading}
+            disabled={isCreating}
             className="flex-1 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-sm font-medium py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
           >
             Cancelar
           </button>
           <button
             type="submit"
-            disabled={isUploading}
+            disabled={isCreating}
             className="group relative flex-1 overflow-hidden bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium py-2 rounded-lg transition-colors"
           >
             <PixelCanvas gap={6} speed={80} colors={["#ffffff", "#bfdbfe", "#93c5fd"]} noFocus />

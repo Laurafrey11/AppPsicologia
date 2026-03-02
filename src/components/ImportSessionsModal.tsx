@@ -82,11 +82,9 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
           if (cutAt === -1) cutAt = TXT_TRIM_CHARS
           text = raw.slice(0, cutAt).trimEnd()
           truncated = true
-
-          // Replace the File object in state with the truncated content so the
-          // FormData sent to the backend already has the trimmed version.
-          const trimmedFile = new File([text], f.name, { type: "text/plain" })
-          setFile(trimmedFile)
+          // Truncation is applied JIT in handleImport — not here — to avoid
+          // the React state timing issue where setFile() may not commit before
+          // handleImport reads the file state.
         }
 
         setIsFreeTxt(true)
@@ -138,8 +136,20 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
     setImporting(true)
     setParseError(null)
     try {
+      // JIT truncation: apply the 50k-char limit here, synchronously, so we
+      // never depend on React state having committed the trimmed File.
+      let uploadFile = file
+      if (isFreeTxt) {
+        const raw = await file.text()
+        if (raw.length > TXT_MAX_CHARS) {
+          let cutAt = raw.lastIndexOf("\n\n", TXT_TRIM_CHARS)
+          if (cutAt === -1) cutAt = raw.lastIndexOf("\n", TXT_TRIM_CHARS)
+          if (cutAt === -1) cutAt = TXT_TRIM_CHARS
+          uploadFile = new File([raw.slice(0, cutAt).trimEnd()], file.name, { type: "text/plain" })
+        }
+      }
       const fd = new FormData()
-      fd.append("file", file)
+      fd.append("file", uploadFile)
       const res = await fetch(`/api/patients/${patientId}/import`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
