@@ -34,13 +34,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No se recibió ningún archivo de audio" }, { status: 400 })
     }
 
-    // Whisper API hard limit: 25 MB.
-    // (Vercel Hobby body limit is 4.5 MB and acts as first gate; this guard
-    //  covers the documented Whisper limit for any hosting plan.)
-    const MAX_AUDIO_BYTES = 25 * 1024 * 1024
+    // Size guard calibrated to the 2-min frontend limit.
+    // WebM/Opus at 128 kbps (high end for voice) × 120 s ≈ 1.9 MB.
+    // 3 MB gives generous headroom; Vercel Hobby body limit (4.5 MB) acts as
+    // the outer gate before this code even runs.
+    const MAX_AUDIO_BYTES = 3 * 1024 * 1024
     if (file.size > MAX_AUDIO_BYTES) {
       return NextResponse.json(
-        { error: "El archivo de audio supera el límite de 25 MB (límite de Whisper). Grabá fragmentos más cortos." },
+        {
+          error: "El archivo de audio es demasiado grande para el plan actual. Grabá notas de menos de 2 minutos.",
+          code: "AUDIO_TOO_LARGE",
+        },
         { status: 413 }
       )
     }

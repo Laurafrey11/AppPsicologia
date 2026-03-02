@@ -79,6 +79,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
   const [audioDurationMin, setAudioDurationMin] = useState(0)
   const [transcribed, setTranscribed] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
+  const [hitLimit, setHitLimit] = useState(false)
   const [state, setState] = useState<UploadState>("idle")
   const [error, setError] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState<AiAction | null>(null)
@@ -134,8 +135,8 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
   function handleVoiceRecorded(duration: number, blob?: Blob) {
     if (blob) {
       setTranscribed(false)
+      setHitLimit(false)   // reset; onLimitReached will set it back if the limit was hit
       setAudioDurationMin(Math.round(duration / 60))
-      // Auto-transcribe immediately on recording stop
       transcribeBlob(blob)
     }
   }
@@ -344,16 +345,30 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
             <div className="flex items-center gap-2 mb-1">
               <Mic className="w-3.5 h-3.5 text-gray-400 dark:text-slate-500" />
               <span className="text-xs font-medium text-gray-500 dark:text-slate-400">Grabación de voz</span>
-              <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">recom. &lt; 2 min · límite 4 min</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500 ml-auto">límite 2 min</span>
             </div>
             <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">
-              Al terminar de grabar, la IA transcribe automáticamente al campo de notas.{" "}
-              <span className="text-amber-600 dark:text-amber-400">Grabá fragmentos breves para evitar cortes por timeout del servidor.</span>
+              Al terminar de grabar, la IA transcribe automáticamente al campo de notas.
+              La grabación se detiene sola a los 2 minutos.
             </p>
             {transcribing ? (
-              <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2.5">
-                <Mic className="w-4 h-4 text-blue-500 animate-pulse flex-shrink-0" />
-                <span className="text-sm text-blue-700 dark:text-blue-400 flex-1">Transcribiendo con IA...</span>
+              <div className={`flex items-center gap-3 rounded-lg px-3 py-2.5 border ${
+                hitLimit
+                  ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
+                  : "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+              }`}>
+                <Mic className={`w-4 h-4 animate-pulse flex-shrink-0 ${
+                  hitLimit ? "text-amber-500" : "text-blue-500"
+                }`} />
+                <span className={`text-sm flex-1 ${
+                  hitLimit
+                    ? "text-amber-700 dark:text-amber-400"
+                    : "text-blue-700 dark:text-blue-400"
+                }`}>
+                  {hitLimit
+                    ? "Límite de 2 minutos alcanzado. Transcribiendo nota..."
+                    : "Transcribiendo con IA..."}
+                </span>
               </div>
             ) : transcribed ? (
               <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2">
@@ -363,7 +378,7 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 </span>
                 <button
                   type="button"
-                  onClick={() => { setTranscribed(false); setAudioDurationMin(0); setRawText("") }}
+                  onClick={() => { setTranscribed(false); setHitLimit(false); setAudioDurationMin(0); setRawText("") }}
                   className="text-xs text-gray-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
                   disabled={isCreating}
                 >
@@ -371,7 +386,11 @@ export function NewSessionModal({ patientId, token, onClose, onCreated }: Props)
                 </button>
               </div>
             ) : (
-              <AIVoiceInput onStop={handleVoiceRecorded} visualizerBars={32} />
+              <AIVoiceInput
+                onStop={handleVoiceRecorded}
+                onLimitReached={() => setHitLimit(true)}
+                visualizerBars={32}
+              />
             )}
           </div>
 
