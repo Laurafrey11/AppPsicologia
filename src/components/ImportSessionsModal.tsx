@@ -100,6 +100,22 @@ function formatPreviewDate(dateStr: string): string {
   })
 }
 
+const CSV_TEMPLATE = `fecha,texto
+15/01/2024,"Sesión inicial. El paciente refiere dificultades para conciliar el sueño y alta carga de estrés laboral. Se exploró contexto familiar y laboral."
+01/02/2024,"Segunda sesión. Se trabajó sobre estrategias de regulación emocional. El paciente mostró mayor apertura al diálogo."
+15/02/2024,"Tercera sesión. Relata mejoría en el descanso nocturno. Se introdujeron técnicas de mindfulness."
+`
+
+function downloadTemplate() {
+  const blob = new Blob([CSV_TEMPLATE], { type: "text/csv;charset=utf-8;" })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement("a")
+  a.href     = url
+  a.download = "plantilla_sesiones.csv"
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function ImportSessionsModal({ patientId, token, onClose, onImported }: Props) {
   const [file, setFile] = useState<File | null>(null)
   const [rows, setRows] = useState<ImportRow[]>([])
@@ -204,7 +220,15 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
       }
       const fd = new FormData()
       fd.append("file", uploadFile)
-      const res = await fetch(`/api/patients/${patientId}/import`, {
+
+      // CSV → zero-AI route (no timeout risk).
+      // TXT / XLSX → AI-powered route.
+      const ext = uploadFile.name.split(".").pop()?.toLowerCase() ?? ""
+      const endpoint = ext === "csv"
+        ? `/api/patients/${patientId}/import-csv`
+        : `/api/patients/${patientId}/import`
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -240,13 +264,27 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
           </button>
         </div>
 
-        <p className="text-xs text-gray-500 dark:text-slate-400">
-          <span className="font-semibold text-gray-700 dark:text-slate-300">TXT</span>{" "}
-          — texto libre, OpenAI extrae fecha y contenido automáticamente (máx. 15 000 caracteres).{" "}
-          <span className="font-semibold text-gray-700 dark:text-slate-300">CSV / XLSX</span>{" "}
-          — requieren columnas <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">fecha</code> y{" "}
-          <code className="bg-gray-100 dark:bg-slate-800 px-1 rounded">texto</code>.
-        </p>
+        <div className="space-y-2">
+          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-3 py-2 flex items-start justify-between gap-3">
+            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+              <span className="font-semibold">CSV (recomendado)</span> — inserción directa, sin IA, sin timeout.
+              Columnas requeridas:{" "}
+              <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">fecha</code> y{" "}
+              <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">texto</code>.
+            </p>
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              className="flex-shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-400 underline underline-offset-2 hover:text-emerald-900 dark:hover:text-emerald-200 whitespace-nowrap"
+            >
+              Descargar plantilla
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 dark:text-slate-500">
+            <span className="font-medium text-gray-600 dark:text-slate-400">TXT</span>{" "}
+            — OpenAI extrae las sesiones automáticamente (máx. 15 000 caracteres, puede ser lento).
+          </p>
+        </div>
 
         {/* Result view */}
         {result ? (
