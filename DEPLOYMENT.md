@@ -6,14 +6,14 @@
 
 | Límite | Impacto |
 |---|---|
-| Vercel: **10s timeout** en funciones | Audios largos (+5 min) pueden fallar en transcripción |
+| Vercel: **10s timeout** en funciones | Notas de voz limitadas a 2 minutos (el frontend auto-detiene) |
+| Vercel: **4.5 MB body limit** | El backend rechaza archivos > 3 MB (WebM/Opus 2 min ≈ 1.9 MB) |
 | Supabase: **pausa tras 7 días sin uso** | Proyecto se pausa si no hay tráfico |
-| Supabase Storage: **1GB** | ~10h de audio a 128kbps |
 | Supabase DB: **500MB** | Suficiente para miles de sesiones |
 
-**Workaround para el timeout**: El audio se envía directamente a Whisper (ephemeral — no se guarda en Storage). WebM/Opus a 4 minutos ≈ 1-3 MB, dentro del límite de 4.5 MB de Vercel. El timeout de 10s es suficiente para notas de voz cortas.
+**Workaround para el timeout**: El audio se envía directamente a Whisper (ephemeral — nunca se guarda en Storage). El frontend corta la grabación a exactamente 2 minutos (120 s). WebM/Opus a 2 minutos ≈ 1-2 MB, muy por debajo del límite de 4.5 MB de Vercel. El timeout de 10s es suficiente para notas de voz de hasta 2 minutos.
 
-**Solución práctica para el MVP**: Usá la grabación para fragmentos cortos (notas de voz de 2-5 minutos), no sesiones completas.
+**Solución práctica para el MVP**: Usá la grabación para notas de voz cortas (máximo 2 minutos). El componente de grabación auto-detiene y avisa al usuario cuando se acerca al límite.
 
 ---
 
@@ -72,6 +72,8 @@ En Vercel → Project Settings → Environment Variables, agregar:
 | `SUPABASE_URL` | Igual que NEXT_PUBLIC_SUPABASE_URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Settings → API → service_role |
 | `OPENAI_API_KEY` | platform.openai.com → API Keys |
+| `UPSTASH_REDIS_REST_URL` | upstash.com → Database → REST API → UPSTASH_REDIS_REST_URL |
+| `UPSTASH_REDIS_REST_TOKEN` | upstash.com → Database → REST API → UPSTASH_REDIS_REST_TOKEN |
 
 **Entornos**: marcar `Production`, `Preview` y `Development` para todas.
 
@@ -112,6 +114,7 @@ Cada push a `main` dispara un redeploy automático en Vercel. Para cambios de DB
 
 ## Escalar a producción real (cuando sea necesario)
 
-- **Vercel Pro** ($20/mes): timeout 60s, mejor para audio largo
+- **Vercel Pro** ($20/mes): timeout 60s, permite notas de voz más largas
 - **Supabase Pro** ($25/mes): sin pausa, más storage, backups automáticos, Point-in-Time Recovery
-- Para audios muy largos: implementar transcripción asincrónica con Supabase Edge Functions + webhooks
+- **Upstash Redis**: el plan gratuito (10k comandos/día) es suficiente para el rate limiting del MVP
+- Para transcripción de sesiones completas: implementar pipeline asincrónico con chunking de audio
