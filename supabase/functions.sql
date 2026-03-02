@@ -250,22 +250,26 @@ $$;
 --   p_file_ext  TEXT   – 'txt' | 'csv' | 'xlsx' | 'xls'  (drives step 7 guard).
 --
 -- Steps (all within one transaction):
---   0. pg_advisory_xact_lock(hash(psychologist_id:patient_id))
---        → total serialisation per patient pair; blocks before ANY table access.
+--   0.  pg_advisory_xact_lock(hash(psychologist_id:patient_id))
+--         → total serialisation per patient pair; blocks before ANY table access.
+--   A.  Guard: historical_import_done IS DISTINCT FROM true
+--         → raises HISTORICAL_IMPORT_ALREADY_DONE if flag already set.
+--   B.  Guard: COUNT(sessions) < 3 all-time
+--         → raises TOO_MANY_EXISTING_SESSIONS if patient already has ≥ 3 sessions.
 --   0b. PERFORM … FOR UPDATE on import_progress (if row exists)
---        → serialises concurrent initial calls when a prior partial import exists.
---   1. INSERT subscription_limits ON CONFLICT DO NOTHING
---      + SELECT … FOR UPDATE on subscription_limits → prevents TOCTOU on quota.
---   2. COUNT sessions this month                    → accurate inside the lock.
---   3. Split p_sessions into batch (fits quota) + remaining.
---   4. INSERT batch ON CONFLICT … DO NOTHING        → fully idempotent.
---   5. UPDATE usage_tracking.sessions_count         → atomic counter.
---   6. UPSERT or DELETE import_progress             → queue managed in SQL,
---        not in JS — eliminates the crash window that existed before this refactor.
---   7. If p_file_ext = 'txt' AND remaining = '[]':
---      UPDATE patients SET historical_import_done = true
---        → flag committed atomically with all prior steps; non-recoverable state
---          (flag false after sessions inserted) is now impossible.
+--         → serialises concurrent initial calls when a prior partial import exists.
+--   1.  INSERT subscription_limits ON CONFLICT DO NOTHING
+--       + SELECT … FOR UPDATE on subscription_limits → prevents TOCTOU on quota.
+--   2.  COUNT sessions this month                    → accurate inside the lock.
+--   3.  Split p_sessions into batch (fits quota) + remaining.
+--   4.  INSERT batch ON CONFLICT … DO NOTHING        → fully idempotent.
+--   5.  UPDATE usage_tracking.sessions_count         → atomic counter.
+--   6.  UPSERT or DELETE import_progress             → queue managed in SQL,
+--         not in JS — eliminates the crash window that existed before this refactor.
+--   7.  If p_file_ext = 'txt' AND remaining = '[]':
+--       UPDATE patients SET historical_import_done = true
+--         → flag committed atomically with all prior steps; non-recoverable state
+--           (flag false after sessions inserted) is now impossible.
 --
 -- Returns JSONB: { imported_count INT, remaining_count INT, can_continue BOOL }
 --   • remaining_count = 0 / can_continue = false  → all sessions fit in quota.
@@ -293,6 +297,8 @@ LANGUAGE plpgsql
 SECURITY INVOKER
 AS $$
 DECLARE
+  v_patient_done   BOOLEAN;
+  v_existing_count BIGINT;
   v_limit_row      RECORD;
   v_current_count  BIGINT;
   v_available      INT;
@@ -323,6 +329,32 @@ BEGIN
     hashtext(p_psychologist_id::text || ':' || p_patient_id::text)
   );
 
+  -- Guard A: one-time import per patient.
+  --   Runs inside the advisory lock → no race possible.
+  --   Plain SELECT (no FOR UPDATE): historical_import_done is only written by
+  --   step 7 of this very function, which is protected by the same advisory lock.
+  SELECT historical_import_done
+    INTO v_patient_done
+    FROM patients
+   WHERE id              = p_patient_id
+     AND psychologist_id = p_psychologist_id;
+
+  IF v_patient_done IS NOT DISTINCT FROM true THEN
+    RAISE EXCEPTION 'HISTORICAL_IMPORT_ALREADY_DONE';
+  END IF;
+
+  -- Guard B: only allowed if the patient has fewer than 3 existing sessions (all-time).
+  --   COUNT(*) with no date filter — not the monthly window used for quota.
+  SELECT COUNT(*)
+    INTO v_existing_count
+    FROM sessions
+   WHERE psychologist_id = p_psychologist_id
+     AND patient_id      = p_patient_id;
+
+  IF v_existing_count >= 3 THEN
+    RAISE EXCEPTION 'TOO_MANY_EXISTING_SESSIONS';
+  END IF;
+
   -- Fast path: nothing to do.
   IF p_sessions IS NULL THEN
     RETURN jsonb_build_object('imported_count', 0, 'remaining_count', 0, 'can_continue', FALSE);
@@ -334,12 +366,15 @@ BEGIN
     RETURN jsonb_build_object('imported_count', 0, 'remaining_count', 0, 'can_continue', FALSE);
   END IF;
 
-  -- 0. Lock import_progress row for this patient if one exists.
+  -- 0b. Lock import_progress row for this patient if one exists.
   --    Serialises concurrent initial imports for the same patient.
   --    If no row exists this PERFORM touches zero rows and does not block.
+  --    (The advisory lock above already prevents true concurrency; this FOR UPDATE
+  --    maintains explicit lock-order parity with process_import_continue.)
   --
-  --    Lock order: import_progress → subscription_limits → usage_tracking
-  --    Matches process_import_continue exactly — no lock inversion, no deadlock.
+  --    Lock order: advisory → import_progress → subscription_limits
+  --                → sessions → usage_tracking → import_progress → patients
+  --    Identical to process_import_continue prefix — no lock inversion, no deadlock.
   PERFORM 1
     FROM import_progress
    WHERE psychologist_id = p_psychologist_id

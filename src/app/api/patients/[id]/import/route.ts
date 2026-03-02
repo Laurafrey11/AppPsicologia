@@ -4,10 +4,7 @@ import { checkRateLimit, importLimiter } from "@/lib/rate-limit"
 import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
 import { checkAndAddCost, AI_COSTS, MONTHLY_COST_CAP } from "@/lib/repositories/limits.repository"
 import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
-import {
-  findSessionSummariesByPatient,
-  countSessionsByPatient,
-} from "@/lib/repositories/session.repository"
+import { findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
 import { generateCaseSummary, extractSessionsFromText, generateBatchSessionSummaries } from "@/lib/services/openai.service"
 import {
   getImportProgressCount,
@@ -27,8 +24,8 @@ export const maxDuration = 10
 // Worst-case OpenAI calls:
 //   TXT  → 1 (extract) + 1 (batch summaries ≤ 10) + 1 (case summary) = 3 calls
 //   CSV/XLSX → 0 + 1 (batch summaries ≤ 10) + 1 (case summary) = 2 calls
-const MAX_IMPORT_ROWS       = 100     // hard cap on rows per file
-const MAX_TXT_EXTRACT_CHARS = 100_000 // max chars accepted for TXT import
+const MAX_IMPORT_ROWS       = 100    // hard cap on rows per file
+const MAX_TXT_EXTRACT_CHARS = 50_000 // max chars accepted for TXT import (backend defense)
 const SUMMARY_THRESHOLD     = 30      // if rows > this, only the last N get summaries
 const LAST_N_WITH_SUMMARY   = 10      // how many sessions receive an AI summary
 
@@ -78,27 +75,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     let rows: Array<{ fecha: string; texto: string }> = []
 
     // ── TXT path: guards + AI extraction ───────────────────────────────────────
+    // Gate 1 (historical_import_done) and Gate 2 (existing session count < 3)
+    // are enforced atomically inside process_import_initial, within the advisory
+    // lock. They raise HISTORICAL_IMPORT_ALREADY_DONE / TOO_MANY_EXISTING_SESSIONS.
     if (ext === "txt") {
-      // Gate 1: block historical import if patient already has sessions
-      const existingCount = await countSessionsByPatient(patientId, user.id)
-      if (existingCount > 5) {
-        return NextResponse.json(
-          {
-            error:
-              "La importación histórica solo está disponible al inicio del seguimiento (máximo 5 sesiones registradas).",
-          },
-          { status: 409 }
-        )
-      }
-
-      // Gate 2: one-time import per patient
-      if (patient.historical_import_done) {
-        return NextResponse.json(
-          { error: "La importación histórica ya fue realizada para este paciente." },
-          { status: 409 }
-        )
-      }
-
       // Gate 2.5: don't start a new import while one is still in progress
       const pendingCount = await getImportProgressCount(user.id, patientId)
       if (pendingCount !== null && pendingCount > 0) {
@@ -112,11 +92,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         )
       }
 
-      // Validate file content before calling OpenAI
+      // Backend defense: reject if frontend bypass sent an oversized payload.
+      // (Frontend already trims to 40 000 chars before upload.)
       const text = await file.text()
       if (text.length > MAX_TXT_EXTRACT_CHARS) {
         return NextResponse.json(
-          { error: `El archivo supera el límite de ${MAX_TXT_EXTRACT_CHARS.toLocaleString()} caracteres para importación libre.` },
+          { error: `El archivo supera el límite de ${(MAX_TXT_EXTRACT_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres. El frontend debería haberlo recortado automáticamente.` },
           { status: 400 }
         )
       }
@@ -288,16 +269,42 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     // ── DB-enforced import: single atomic SQL transaction ────────────────────────
     //
     // process_import_initial handles everything internally:
-    //   0. FOR UPDATE on import_progress      → serialises concurrent initials
-    //   1. FOR UPDATE on subscription_limits  → no TOCTOU
-    //   2. COUNT sessions this month          → accurate quota inside the lock
-    //   3. Split batch vs remaining           → partial-import safe
-    //   4. INSERT … ON CONFLICT DO NOTHING   → idempotent
-    //   5. UPDATE usage_tracking             → atomic counter
-    //   6. UPSERT / DELETE import_progress   → no JS-level saveImportProgress
+    //   Guard A: historical_import_done IS DISTINCT FROM true (within advisory lock)
+    //   Guard B: COUNT(sessions) < 3 all-time          (within advisory lock)
+    //   0. pg_advisory_xact_lock                       → serialises per patient
+    //   0b. FOR UPDATE on import_progress              → serialises concurrent initials
+    //   1.  FOR UPDATE on subscription_limits          → no TOCTOU
+    //   2.  COUNT sessions this month                  → accurate quota inside lock
+    //   3.  Split batch vs remaining                   → partial-import safe
+    //   4.  INSERT … ON CONFLICT DO NOTHING            → idempotent
+    //   5.  UPDATE usage_tracking                      → atomic counter
+    //   6.  UPSERT / DELETE import_progress            → no JS-level saveImportProgress
+    //   7.  UPDATE patients.historical_import_done     → atomic with sessions commit
     //
     // Returns { imported_count, remaining_count, can_continue }.
-    const importResult   = await processImportInitial(user.id, patientId, allSessions, file.name, ext)
+    // Raises HISTORICAL_IMPORT_ALREADY_DONE or TOO_MANY_EXISTING_SESSIONS on guard failure.
+    let importResult: Awaited<ReturnType<typeof processImportInitial>>
+    try {
+      importResult = await processImportInitial(user.id, patientId, allSessions, file.name, ext)
+    } catch (err: unknown) {
+      const msg = (err as Error).message
+      if (msg.includes("HISTORICAL_IMPORT_ALREADY_DONE")) {
+        return NextResponse.json(
+          { error: "La importación histórica ya fue realizada para este paciente." },
+          { status: 409 }
+        )
+      }
+      if (msg.includes("TOO_MANY_EXISTING_SESSIONS")) {
+        return NextResponse.json(
+          {
+            error: "La importación histórica solo está disponible al inicio del seguimiento (máximo 2 sesiones registradas).",
+            code: "TOO_MANY_EXISTING_SESSIONS",
+          },
+          { status: 409 }
+        )
+      }
+      throw err
+    }
     const imported       = importResult.imported_count
     const remainingCount = importResult.remaining_count
     const canContinue    = importResult.can_continue

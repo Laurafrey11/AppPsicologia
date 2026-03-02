@@ -41,11 +41,15 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
   const [rows, setRows] = useState<ImportRow[]>([])
   const [isFreeTxt, setIsFreeTxt] = useState(false)
   const [txtPreview, setTxtPreview] = useState<string>("")
+  const [txtTruncated, setTxtTruncated] = useState(false)
   const [parseError, setParseError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const TXT_MAX_CHARS  = 50_000   // backend hard limit
+  const TXT_TRIM_CHARS = 40_000   // trim target when file exceeds max
 
   function handleFileSelect(f: File) {
     setFile(f)
@@ -53,19 +57,41 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
     setRows([])
     setIsFreeTxt(false)
     setTxtPreview("")
+    setTxtTruncated(false)
     setResult(null)
     const ext = f.name.split(".").pop()?.toLowerCase() ?? ""
 
     if (ext === "txt") {
       const reader = new FileReader()
       reader.onload = (e) => {
-        const text = (e.target?.result as string) ?? ""
-        if (!text.trim()) {
+        const raw = (e.target?.result as string) ?? ""
+        if (!raw.trim()) {
           setParseError("El archivo de texto está vacío")
           return
         }
+
+        let text = raw
+        let truncated = false
+
+        if (raw.length > TXT_MAX_CHARS) {
+          // Find the last paragraph break (double newline) before TXT_TRIM_CHARS.
+          // Fall back to the last single newline, then to a hard cut.
+          // This guarantees we never split a session in the middle of a line.
+          let cutAt = raw.lastIndexOf("\n\n", TXT_TRIM_CHARS)
+          if (cutAt === -1) cutAt = raw.lastIndexOf("\n", TXT_TRIM_CHARS)
+          if (cutAt === -1) cutAt = TXT_TRIM_CHARS
+          text = raw.slice(0, cutAt).trimEnd()
+          truncated = true
+
+          // Replace the File object in state with the truncated content so the
+          // FormData sent to the backend already has the trimmed version.
+          const trimmedFile = new File([text], f.name, { type: "text/plain" })
+          setFile(trimmedFile)
+        }
+
         setIsFreeTxt(true)
         setTxtPreview(text.slice(0, 500))
+        setTxtTruncated(truncated)
       }
       reader.readAsText(f)
     } else if (ext === "csv") {
@@ -247,6 +273,19 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
             {/* Free TXT preview */}
             {isFreeTxt && txtPreview && !parseError && (
               <div className="space-y-2">
+                {txtTruncated && (
+                  <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 mb-0.5">
+                      Archivo recortado automáticamente
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      El archivo supera el límite permitido de{" "}
+                      {(TXT_MAX_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres.
+                      Se importará únicamente el tramo más antiguo hasta el máximo permitido.
+                      Solo puede realizarse una importación histórica por paciente.
+                    </p>
+                  </div>
+                )}
                 <div className="rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 px-4 py-3">
                   <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">
                     Texto libre detectado — OpenAI extraerá las sesiones automáticamente
