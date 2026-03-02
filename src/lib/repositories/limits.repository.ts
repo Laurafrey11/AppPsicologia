@@ -16,7 +16,23 @@ export type MonthlyUsage = {
   sessions_count: number
   audio_minutes: number
   ai_assist_count: number
+  estimated_cost: number
 }
+
+// ── AI cost estimates (USD) ───────────────────────────────────────────────────
+// Conservative overestimates to protect against runaway spend.
+// Whisper: $0.006/min — assuming ~50-min session average.
+// GPT-4o-mini: $0.15/1M input + $0.60/1M output — rounded up per call.
+export const AI_COSTS = {
+  TRANSCRIPTION:             0.30,   // ~50-min audio × $0.006/min
+  SESSION_SUMMARY:           0.001,  // ~800-token GPT-4o-mini call
+  CASE_SUMMARY:              0.002,  // ~2000-token GPT-4o-mini call
+  AI_ASSIST:                 0.001,  // ~800-token GPT-4o-mini call
+  BATCH_SUMMARY_PER_SESSION: 0.001,  // per session in batch import
+} as const
+
+/** Monthly hard cap on estimated OpenAI spend (USD). */
+export const MONTHLY_COST_CAP = 10.0
 
 const PLAN_DEFAULTS = {
   max_patients: 30,
@@ -65,7 +81,7 @@ export async function getOrCreateMonthUsage(
   const { error: insertError } = await supabaseAdmin
     .from("usage_tracking")
     .upsert(
-      { psychologist_id: psychologistId, month, sessions_count: 0, audio_minutes: 0, ai_assist_count: 0 },
+      { psychologist_id: psychologistId, month, sessions_count: 0, audio_minutes: 0, ai_assist_count: 0, estimated_cost: 0 },
       { onConflict: "psychologist_id,month", ignoreDuplicates: true }
     )
   if (insertError) throw new Error(insertError.message)
@@ -73,7 +89,7 @@ export async function getOrCreateMonthUsage(
   // Read the current state (guaranteed to exist now).
   const { data, error } = await supabaseAdmin
     .from("usage_tracking")
-    .select("psychologist_id, month, sessions_count, audio_minutes, ai_assist_count")
+    .select("psychologist_id, month, sessions_count, audio_minutes, ai_assist_count, estimated_cost")
     .eq("psychologist_id", psychologistId)
     .eq("month", month)
     .single()
@@ -101,4 +117,27 @@ export async function incrementAiAssistCount(
   })
   if (error) throw new Error(error.message)
   return data as number
+}
+
+/**
+ * Atomically checks the monthly AI cost cap and, if within budget, adds the
+ * cost delta in a single DB transaction (SELECT ... FOR UPDATE on usage_tracking).
+ *
+ * Returns true  → request is within budget, cost has been charged.
+ * Returns false → monthly cap reached, caller must block the AI feature.
+ *
+ * Calls the `check_and_add_cost` SQL function.
+ */
+export async function checkAndAddCost(
+  psychologistId: string,
+  month: string,
+  costDelta: number
+): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.rpc("check_and_add_cost", {
+    p_psychologist_id: psychologistId,
+    p_month:           month,
+    p_cost_delta:      costDelta,
+  })
+  if (error) throw new Error(error.message)
+  return data as boolean
 }

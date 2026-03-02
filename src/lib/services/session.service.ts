@@ -1,5 +1,5 @@
 import {
-  insertSession,
+  insertSessionWithinLimit,
   findSessionsByPatient,
   findSessionSummariesByPatient,
   type Session,
@@ -12,6 +12,7 @@ import { transcribeAudio, generateSessionSummary, generateCaseSummary } from "@/
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { DomainError } from "@/lib/errors/DomainError"
 import { logger } from "@/lib/logger/logger"
+import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
 import type { CreateSessionInput } from "@/lib/validators/session.schema"
 
 export type CreateSessionResult = {
@@ -36,6 +37,14 @@ export async function createSession(
   let audioDurationMinutes = 0
 
   if (input.audio_path) {
+    if (!input.audio_path.startsWith(`${psychologistId}/`)) {
+      logAuditEvent(psychologistId, AUDIT_ACTIONS.AUDIO_PATH_UNAUTHORIZED, {
+        audio_path: input.audio_path,
+        patient_id: input.patient_id,
+      })
+      throw new DomainError("Audio path no autorizado")
+    }
+
     const { data: audioBlob, error: downloadError } = await supabaseAdmin
       .storage
       .from("session-audio")
@@ -88,7 +97,13 @@ export async function createSession(
       }
     : null
 
-  const session = await insertSession({
+  // insertSessionWithinLimit is the authoritative enforcement: it acquires
+  // a row-level lock on subscription_limits inside the DB, making the
+  // count → check → insert sequence atomic and race-free.
+  // checkSessionLimit above is a fast non-authoritative guard that lets us
+  // fail before expensive audio/transcription/AI calls when the limit is
+  // clearly exhausted.
+  const session = await insertSessionWithinLimit({
     patient_id: input.patient_id,
     psychologist_id: psychologistId,
     raw_text: input.raw_text ?? "",

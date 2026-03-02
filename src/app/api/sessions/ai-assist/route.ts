@@ -5,6 +5,9 @@ import {
   getOrCreateMonthUsage,
   incrementAiAssistCount,
 } from "@/lib/repositories/limits.repository"
+import { checkRateLimit, aiAssistLimiter } from "@/lib/rate-limit"
+import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
+import { checkAndAddCost, AI_COSTS, MONTHLY_COST_CAP } from "@/lib/repositories/limits.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 import OpenAI from "openai"
@@ -49,6 +52,10 @@ function currentMonth(): string {
 export async function POST(req: Request) {
   try {
     const user = await getAuthUser(req)
+
+    const rateLimitResponse = await checkRateLimit(aiAssistLimiter, user.id)
+    if (rateLimitResponse) return rateLimitResponse
+
     const month = currentMonth()
 
     // Fetch plan limits + current month usage in parallel.
@@ -64,6 +71,11 @@ export async function POST(req: Request) {
         count: usage.ai_assist_count,
         limit: limits.max_ai_assist_per_month,
       })
+      logAuditEvent(user.id, AUDIT_ACTIONS.MONTHLY_AI_ASSIST_LIMIT_EXCEEDED, {
+        month,
+        count: usage.ai_assist_count,
+        limit: limits.max_ai_assist_per_month,
+      })
       return NextResponse.json(
         {
           error: `Límite mensual de Asistente IA alcanzado (${limits.max_ai_assist_per_month} usos/mes). Se renueva el 1° de cada mes.`,
@@ -72,6 +84,24 @@ export async function POST(req: Request) {
           limit: limits.max_ai_assist_per_month,
         },
         { status: 403 }
+      )
+    }
+
+    // ── Hard cost cap ─────────────────────────────────────────────────────────
+    const costAllowed = await checkAndAddCost(user.id, month, AI_COSTS.AI_ASSIST)
+    if (!costAllowed) {
+      logAuditEvent(user.id, AUDIT_ACTIONS.AI_COST_CAP_EXCEEDED, {
+        month,
+        feature: "ai-assist",
+        cost_delta: AI_COSTS.AI_ASSIST,
+        cap: MONTHLY_COST_CAP,
+      })
+      return NextResponse.json(
+        {
+          error: `Límite mensual de gasto AI alcanzado ($${MONTHLY_COST_CAP} USD). Se renueva el 1° de cada mes.`,
+          code: "COST_CAP_EXCEEDED",
+        },
+        { status: 429 }
       )
     }
 

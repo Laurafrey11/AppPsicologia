@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin"
+import { LimitExceededError } from "@/lib/errors/LimitExceededError"
 
 export type SessionNotes = {
   motivo_consulta: string
@@ -73,6 +74,38 @@ export async function insertSession(data: InsertSessionData): Promise<Session> {
     throw new Error(error.message)
   }
   return session
+}
+
+/**
+ * Atomically checks the monthly session limit and inserts the session.
+ * Delegates enforcement to the DB function `insert_session_within_limit`,
+ * which uses SELECT ... FOR UPDATE on subscription_limits to serialize
+ * concurrent calls and eliminate the TOCTOU race condition.
+ *
+ * Throws LimitExceededError when the monthly cap is reached.
+ */
+export async function insertSessionWithinLimit(data: InsertSessionData): Promise<Session> {
+  const { data: session, error } = await supabaseAdmin
+    .rpc("insert_session_within_limit", {
+      p_patient_id:      data.patient_id,
+      p_psychologist_id: data.psychologist_id,
+      p_raw_text:        data.raw_text,
+      p_transcription:   data.transcription ?? null,
+      p_ai_summary:      data.ai_summary ?? null,
+      p_audio_duration:  data.audio_duration ?? null,
+      p_session_notes:   (data.session_notes as unknown) ?? null,
+      p_fee:             data.fee ?? null,
+      p_session_date:    data.session_date ?? null,
+    })
+
+  if (error) {
+    if (error.message.includes("SESSION_LIMIT_EXCEEDED")) {
+      throw new LimitExceededError("Límite mensual de sesiones alcanzado")
+    }
+    throw new Error(error.message)
+  }
+
+  return session as Session
 }
 
 export async function findSessionsByPatient(patientId: string, psychologistId: string): Promise<Session[]> {

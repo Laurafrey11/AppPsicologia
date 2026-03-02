@@ -11,7 +11,7 @@ vi.mock("@/lib/repositories/patient.repository", () => ({
 }))
 
 vi.mock("@/lib/repositories/session.repository", () => ({
-  insertSession: vi.fn(),
+  insertSessionWithinLimit: vi.fn(),
   findSessionsByPatient: vi.fn(),
   findSessionSummariesByPatient: vi.fn(),
 }))
@@ -42,15 +42,26 @@ vi.mock("@/lib/logger/logger", () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }))
 
+vi.mock("@/lib/repositories/audit.repository", () => ({
+  logAuditEvent: vi.fn(),
+  AUDIT_ACTIONS: {
+    AUDIO_PATH_UNAUTHORIZED:          "AUDIO_PATH_UNAUTHORIZED",
+    MONTHLY_SESSION_LIMIT_EXCEEDED:   "MONTHLY_SESSION_LIMIT_EXCEEDED",
+    MONTHLY_AI_ASSIST_LIMIT_EXCEEDED: "MONTHLY_AI_ASSIST_LIMIT_EXCEEDED",
+    IMPORT_CONSECUTIVE_ERRORS:        "IMPORT_CONSECUTIVE_ERRORS",
+    AI_COST_CAP_EXCEEDED:             "AI_COST_CAP_EXCEEDED",
+  },
+}))
+
 import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
-import { insertSession, findSessionsByPatient, findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
+import { insertSessionWithinLimit, findSessionsByPatient, findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
 import { checkSessionLimit, checkAudioLimit, recordSessionUsage } from "@/lib/services/limits.service"
 import { transcribeAudio, generateSessionSummary, generateCaseSummary } from "@/lib/services/openai.service"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 
 const mockFindPatient = vi.mocked(findPatientById)
 const mockUpdatePatient = vi.mocked(updatePatient)
-const mockInsertSession = vi.mocked(insertSession)
+const mockInsertSession = vi.mocked(insertSessionWithinLimit)
 const mockFindSessions = vi.mocked(findSessionsByPatient)
 const mockFindSummaries = vi.mocked(findSessionSummariesByPatient)
 const mockCheckSession = vi.mocked(checkSessionLimit)

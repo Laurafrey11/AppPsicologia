@@ -3,6 +3,9 @@ import { getAuthUser } from "@/lib/auth/get-user"
 import { supabaseAdmin } from "@/lib/supabase-admin"
 import { transcribeAudio } from "@/lib/services/openai.service"
 import { checkAudioLimit } from "@/lib/services/limits.service"
+import { checkRateLimit, transcribeLimiter } from "@/lib/rate-limit"
+import { checkAndAddCost, AI_COSTS, MONTHLY_COST_CAP } from "@/lib/repositories/limits.repository"
+import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 
@@ -23,10 +26,34 @@ export async function GET(req: Request) {
   try {
     const user = await getAuthUser(req)
 
+    const rateLimitResponse = await checkRateLimit(transcribeLimiter, user.id)
+    if (rateLimitResponse) return rateLimitResponse
+
     const { searchParams } = new URL(req.url)
     const path = searchParams.get("path")
     if (!path) {
       return NextResponse.json({ error: "path is required" }, { status: 400 })
+    }
+
+    // ── Hard cost cap ─────────────────────────────────────────────────────────
+    const costAllowed = await checkAndAddCost(
+      user.id,
+      new Date().toISOString().slice(0, 7),
+      AI_COSTS.TRANSCRIPTION
+    )
+    if (!costAllowed) {
+      logAuditEvent(user.id, AUDIT_ACTIONS.AI_COST_CAP_EXCEEDED, {
+        feature: "transcribe",
+        cost_delta: AI_COSTS.TRANSCRIPTION,
+        cap: MONTHLY_COST_CAP,
+      })
+      return NextResponse.json(
+        {
+          error: `Límite mensual de gasto AI alcanzado ($${MONTHLY_COST_CAP} USD). Se renueva el 1° de cada mes.`,
+          code: "COST_CAP_EXCEEDED",
+        },
+        { status: 429 }
+      )
     }
 
     // Ownership check: storage paths are scoped as "<psychologist_id>/filename"
