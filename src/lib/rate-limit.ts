@@ -4,8 +4,12 @@ import { NextResponse } from "next/server"
 
 // ── Redis client ──────────────────────────────────────────────────────────────
 //
-// Fail-closed in production: if env vars are absent, throws at module load
-// time so the process never serves requests without rate limiting active.
+// Fail-closed in production at request time: if env vars are absent when the
+// first request arrives, checkRateLimit returns 503 (never skips rate limiting).
+//
+// We intentionally do NOT throw at module load time so that the Next.js build
+// can succeed even when Upstash env vars are not available in the build
+// environment (build-time NODE_ENV === "production" but env vars may be absent).
 //
 // Fail-open in development: returns null and logs a console warning.
 // All limiters become null and checkRateLimit becomes a no-op.
@@ -15,24 +19,20 @@ function buildRedis(): Redis | null {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
 
   if (!url || !token) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "[rate-limit] UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set in production. " +
-        "Rate limiting is required. Add them to your Vercel environment variables."
+    if (process.env.NODE_ENV !== "production") {
+      // Development / test: warn and continue without Redis.
+      console.warn(
+        "[rate-limit] Upstash env vars not set — rate limiting is DISABLED. " +
+        "This is only acceptable in local development."
       )
     }
-    // Development / test: warn and continue without Redis.
-    console.warn(
-      "[rate-limit] Upstash env vars not set — rate limiting is DISABLED. " +
-      "This is only acceptable in local development."
-    )
+    // Production: limiter will be null; checkRateLimit will return 503.
     return null
   }
 
   return new Redis({ url, token })
 }
 
-// Throws at module initialization if NODE_ENV === "production" and vars missing.
 const redis = buildRedis()
 
 // ── Limiter instances ─────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ export const aiAssistLimiter: Ratelimit | null = redis
     })
   : null
 
-/** 10 requests per minute (sliding window) — GET /api/sessions/transcribe */
+/** 10 requests per minute (sliding window) — POST /api/sessions/transcribe */
 export const transcribeLimiter: Ratelimit | null = redis
   ? new Ratelimit({
       redis,
@@ -73,8 +73,8 @@ export const importLimiter: Ratelimit | null = redis
  * exceeded, or null if the request may proceed.
  *
  * Production guarantees:
- * - limiter is never null (buildRedis threw at module init if vars missing)
- * - If somehow called with null in production, throws immediately (belt-and-suspenders)
+ * - If Upstash env vars are missing, returns 503 (fail-closed — never skips rate limiting)
+ * - Does NOT throw at module load time, so the Next.js build always succeeds
  *
  * Development behavior:
  * - limiter = null (env vars not set): always returns null (fail-open)
@@ -86,9 +86,15 @@ export async function checkRateLimit(
 ): Promise<NextResponse | null> {
   if (!limiter) {
     if (process.env.NODE_ENV === "production") {
-      // Should be unreachable: buildRedis() would have thrown at module init.
-      // Belt-and-suspenders: never fail-open in production.
-      throw new Error("[rate-limit] Limiter is null in production — this should never happen.")
+      // Env vars were not available at module init (e.g. missing in Vercel settings).
+      // Fail-closed: refuse the request rather than skip rate limiting.
+      return NextResponse.json(
+        {
+          error: "Servicio temporalmente no disponible. Configuración de rate limiting incompleta.",
+          code: "RATE_LIMIT_UNAVAILABLE",
+        },
+        { status: 503 }
+      )
     }
     // Development: fail-open.
     return null
