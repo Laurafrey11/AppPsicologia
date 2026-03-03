@@ -71,6 +71,19 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
   const [editDate, setEditDate] = useState(session.session_date ?? "")
   const [editFee, setEditFee] = useState(session.fee != null ? String(session.fee) : "")
   const [editPaid, setEditPaid] = useState(session.paid)
+  // AI summary editable fields
+  const [editSentimiento, setEditSentimiento] = useState(parseAiSummary(session.ai_summary)?.sentimiento_predominante ?? "")
+  const [editPensamiento, setEditPensamiento] = useState(parseAiSummary(session.ai_summary)?.pensamiento_predominante ?? "")
+  const [editMecanismo, setEditMecanismo] = useState(parseAiSummary(session.ai_summary)?.mecanismo_defensa ?? "")
+  const [editTematica, setEditTematica] = useState(parseAiSummary(session.ai_summary)?.tematica_predominante ?? "")
+  const [editMainTopic, setEditMainTopic] = useState(parseAiSummary(session.ai_summary)?.main_topic ?? "")
+  // Session notes editable fields
+  const [editMotivo, setEditMotivo] = useState(session.session_notes?.motivo_consulta ?? "")
+  const [editHumor, setEditHumor] = useState(session.session_notes?.humor_paciente ?? "")
+  const [editHipotesis, setEditHipotesis] = useState(session.session_notes?.hipotesis_clinica ?? "")
+  const [editIntervenciones, setEditIntervenciones] = useState(session.session_notes?.intervenciones ?? "")
+  const [editEvolucion, setEditEvolucion] = useState(session.session_notes?.evolucion ?? "")
+  const [editPlan, setEditPlan] = useState(session.session_notes?.plan_proximo ?? "")
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -92,6 +105,18 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
     setEditDate(localDate ?? "")
     setEditFee(localFee != null ? String(localFee) : "")
     setEditPaid(paid)
+    const s = parseAiSummary(session.ai_summary)
+    setEditSentimiento(s?.sentimiento_predominante ?? "")
+    setEditPensamiento(s?.pensamiento_predominante ?? "")
+    setEditMecanismo(s?.mecanismo_defensa ?? "")
+    setEditTematica(s?.tematica_predominante ?? "")
+    setEditMainTopic(s?.main_topic ?? "")
+    setEditMotivo(session.session_notes?.motivo_consulta ?? "")
+    setEditHumor(session.session_notes?.humor_paciente ?? "")
+    setEditHipotesis(session.session_notes?.hipotesis_clinica ?? "")
+    setEditIntervenciones(session.session_notes?.intervenciones ?? "")
+    setEditEvolucion(session.session_notes?.evolucion ?? "")
+    setEditPlan(session.session_notes?.plan_proximo ?? "")
     setSaveError(null)
     setEditing(true)
   }
@@ -101,6 +126,31 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
     setSaving(true)
     setSaveError(null)
     try {
+      // Build updated ai_summary JSON (merge existing + edited fields)
+      const existingSummary = parseAiSummary(session.ai_summary) ?? {}
+      const updatedSummary = {
+        ...existingSummary,
+        ...(editSentimiento ? { sentimiento_predominante: editSentimiento } : {}),
+        ...(editPensamiento ? { pensamiento_predominante: editPensamiento } : {}),
+        ...(editMecanismo   ? { mecanismo_defensa: editMecanismo } : {}),
+        ...(editTematica    ? { tematica_predominante: editTematica } : {}),
+        ...(editMainTopic   ? { main_topic: editMainTopic } : {}),
+      }
+      const aiSummaryPayload = Object.keys(updatedSummary).length > 0
+        ? JSON.stringify(updatedSummary)
+        : null
+
+      // Build session_notes (only include non-empty fields)
+      const notesPayload = {
+        motivo_consulta: editMotivo.trim(),
+        humor_paciente: editHumor.trim(),
+        hipotesis_clinica: editHipotesis.trim(),
+        intervenciones: editIntervenciones.trim(),
+        evolucion: editEvolucion.trim(),
+        plan_proximo: editPlan.trim(),
+      }
+      const hasNotes = Object.values(notesPayload).some(Boolean)
+
       const res = await fetch(`/api/sessions/${session.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -109,6 +159,8 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
           session_date: editDate || null,
           fee: editFee !== "" ? Number(editFee) : null,
           paid: editPaid,
+          ai_summary: aiSummaryPayload,
+          session_notes: hasNotes ? notesPayload : null,
         }),
       })
       const data = await res.json()
@@ -290,6 +342,65 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                   rows={6}
                   className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors resize-y"
                 />
+              </div>
+
+              {/* Notas clínicas */}
+              <div className="space-y-2 pt-1">
+                <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Notas clínicas</p>
+                {(
+                  [
+                    ["Tema de hoy", editMotivo, setEditMotivo],
+                    ["Humor del paciente", editHumor, setEditHumor],
+                    ["Hipótesis clínica", editHipotesis, setEditHipotesis],
+                    ["Intervenciones", editIntervenciones, setEditIntervenciones],
+                    ["Evolución", editEvolucion, setEditEvolucion],
+                    ["Plan próximo encuentro", editPlan, setEditPlan],
+                  ] as [string, string, (v: string) => void][]
+                ).map(([label, val, set]) => (
+                  <div key={label} className="flex flex-col gap-0.5">
+                    <label className="text-xs text-gray-400 dark:text-slate-500">{label}</label>
+                    <textarea
+                      value={val}
+                      onChange={(e) => set(e.target.value)}
+                      rows={2}
+                      className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-emerald-400 dark:focus:border-emerald-600 transition-colors resize-y"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Análisis IA */}
+              <div className="space-y-2 pt-1">
+                <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Análisis IA</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ["Sentimiento", editSentimiento, setEditSentimiento],
+                      ["Pensamiento", editPensamiento, setEditPensamiento],
+                      ["Mecanismo de defensa", editMecanismo, setEditMecanismo],
+                      ["Temática", editTematica, setEditTematica],
+                    ] as [string, string, (v: string) => void][]
+                  ).map(([label, val, set]) => (
+                    <div key={label} className="flex flex-col gap-0.5">
+                      <label className="text-xs text-gray-400 dark:text-slate-500">{label}</label>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => set(e.target.value)}
+                        className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-xs text-gray-400 dark:text-slate-500">Tema principal</label>
+                  <input
+                    type="text"
+                    value={editMainTopic}
+                    onChange={(e) => setEditMainTopic(e.target.value)}
+                    className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors"
+                  />
+                </div>
               </div>
 
               {saveError && (

@@ -224,6 +224,44 @@ Reglas estrictas:
   return results
 }
 
+/**
+ * Generates a clinical supervision report from all AI session summaries.
+ * Used by the automatic supervision feature (every 5 sessions).
+ */
+export async function generateSupervisionReport(summaries: AiSummary[]): Promise<string> {
+  if (summaries.length === 0) return ""
+  const openai = getOpenAI()
+  const summaryText = summaries
+    .map((s, i) => `Sesión ${i + 1}: ${JSON.stringify(s)}`)
+    .join("\n")
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Sos un supervisor clínico experto. Dado el historial de análisis de sesiones de un paciente, generá un informe de supervisión clínica estructurado.
+
+El informe debe incluir:
+1. Patrones recurrentes detectados (temáticas, emociones, mecanismos de defensa prevalentes)
+2. Evolución observada a lo largo del proceso
+3. Hipótesis clínicas consolidadas
+4. Puntos de atención para el terapeuta
+5. Recomendaciones técnicas para las próximas sesiones
+
+Usá lenguaje profesional y clínico. No incluyas diagnósticos. Máximo 4 párrafos.`,
+      },
+      {
+        role: "user",
+        content: summaryText.slice(0, 12000),
+      },
+    ],
+    temperature: 0.3,
+  })
+  const content = response.choices[0]?.message?.content
+  if (!content) throw new Error("OpenAI returned empty response for supervision report")
+  return content
+}
+
 export async function generateCaseSummary(summaries: AiSummary[]): Promise<string> {
   if (summaries.length === 0) return ""
   const openai = getOpenAI()

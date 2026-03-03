@@ -191,6 +191,8 @@ export type UpdateSessionData = {
   session_date?: string | null
   fee?: number | null
   paid?: boolean
+  ai_summary?: string | null
+  session_notes?: SessionNotes | null
 }
 
 export async function updateSession(
@@ -198,12 +200,14 @@ export async function updateSession(
   psychologistId: string,
   data: UpdateSessionData
 ): Promise<Session> {
-  const { paid, ...rest } = data
+  const { paid, ai_summary, session_notes, ...rest } = data
   const payload: Record<string, unknown> = { ...rest }
   if (paid !== undefined) {
     payload.paid = paid
     payload.paid_at = paid ? new Date().toISOString() : null
   }
+  if (ai_summary !== undefined) payload.ai_summary = ai_summary
+  if (session_notes !== undefined) payload.session_notes = session_notes
   const { data: session, error } = await supabaseAdmin
     .from("sessions")
     .update(payload)

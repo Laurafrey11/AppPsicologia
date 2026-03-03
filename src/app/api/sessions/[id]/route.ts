@@ -5,6 +5,7 @@ import {
   findSessionById,
   updateSession,
   deleteSession,
+  type SessionNotes,
 } from "@/lib/repositories/session.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -23,6 +24,8 @@ const putSchema = z.object({
     .optional(),
   fee: z.number().nonnegative("El honorario debe ser positivo").nullable().optional(),
   paid: z.boolean().optional(),
+  ai_summary: z.string().nullable().optional(),
+  session_notes: z.record(z.string()).nullable().optional(),
 })
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
@@ -90,6 +93,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       session_date: parsed.session_date,
       fee: parsed.fee,
       paid: parsed.paid,
+      ai_summary: parsed.ai_summary,
+      session_notes: parsed.session_notes as SessionNotes | null | undefined,
     })
 
     logger.info("Session updated", { sessionId: params.id, psychologistId: user.id })

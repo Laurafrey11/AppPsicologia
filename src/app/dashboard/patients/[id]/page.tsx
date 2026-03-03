@@ -11,6 +11,7 @@ import { ImportSessionsModal } from "@/components/ImportSessionsModal"
 import { PatientDocuments } from "@/components/PatientDocuments"
 import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
+import { PatientEvolutionChart } from "@/components/PatientEvolutionChart"
 import { WaveText } from "@/components/ui/wave-text"
 import { Search } from "lucide-react"
 
@@ -105,6 +106,9 @@ export default function PatientDetailPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [showImport, setShowImport] = useState(false)
   const [schedulingLink, setSchedulingLink] = useState<string | null>(null)
+  const [supervisionReport, setSupervisionReport] = useState<string | null>(null)
+  const [generatingSupervision, setGeneratingSupervision] = useState(false)
+  const [supervisionError, setSupervisionError] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -177,6 +181,24 @@ export default function PatientDetailPage() {
     setPatient(updated)
   }
 
+  async function handleGenerateSupervision() {
+    if (!token) return
+    setGeneratingSupervision(true)
+    setSupervisionError(null)
+    try {
+      const data = await apiFetch<{ report: string; sessionCount: number }>(
+        `/api/patients/${id}/supervise`,
+        token,
+        { method: "POST" }
+      )
+      setSupervisionReport(data.report)
+    } catch (err: unknown) {
+      setSupervisionError((err as Error).message)
+    } finally {
+      setGeneratingSupervision(false)
+    }
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center h-full">
       <p className="text-sm text-gray-400 dark:text-slate-500">Cargando...</p>
@@ -234,6 +256,54 @@ export default function PatientDetailPage() {
 
       {/* Patient Metrics — clinical overview above reason */}
       <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} />
+
+      {/* Evolution Chart */}
+      <PatientEvolutionChart sessions={sessions} />
+
+      {/* Supervision */}
+      {sessions.length >= 5 && (
+        <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                Supervisión clínica
+              </h2>
+              {sessions.length % 5 === 0 && !supervisionReport && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                  ● Revisión recomendada — {sessions.length} sesiones completadas
+                </p>
+              )}
+            </div>
+            <button
+              onClick={handleGenerateSupervision}
+              disabled={generatingSupervision}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+            >
+              {generatingSupervision ? "Generando..." : supervisionReport ? "Regenerar informe" : "Generar informe"}
+            </button>
+          </div>
+
+          {supervisionError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-2">{supervisionError}</p>
+          )}
+
+          {supervisionReport ? (
+            <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+              {supervisionReport}
+            </p>
+          ) : !generatingSupervision && (
+            <p className="text-xs text-gray-400 dark:text-slate-500">
+              La IA analizará todos los resúmenes de sesiones y generará un informe con patrones, evolución y recomendaciones clínicas.
+            </p>
+          )}
+
+          {generatingSupervision && (
+            <p className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
+              Analizando {sessions.length} sesiones...
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Reason */}
       <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
