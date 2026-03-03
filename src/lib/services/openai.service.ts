@@ -85,9 +85,7 @@ export async function extractSessionsFromText(
       messages: [
         {
           role: "system",
-          content: `Extract clinical sessions from the text. Output JSON only:
-{"sessions":[{"fecha":"YYYY-MM-DD","texto":"exact session text"}]}
-Rules: max 10 sessions, convert any date to YYYY-MM-DD, no summaries, no analysis, no extra text.`,
+          content: `Extract sessions from this text. Output JSON only:\n{"sessions":[{"fecha":"YYYY-MM-DD","texto":"clinical notes"}]}\nMax 10 sessions. Process from most recent to oldest. Focus on clarity.`,
         },
         {
           role: "user",

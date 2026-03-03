@@ -22,6 +22,7 @@ interface Patient {
   reason: string
   case_summary: string | null
   is_active: boolean
+  historical_import_done: boolean
   recording_consent_at: string | null
   created_at: string
 }
@@ -319,12 +320,18 @@ export default function PatientDetailPage() {
           <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
             Sesiones ({sessions.length})
           </h2>
-          <button
-            onClick={() => setShowImport(true)}
-            className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
-          >
-            Importar históricas
-          </button>
+          {patient.historical_import_done ? (
+            <span className="text-xs text-gray-400 dark:text-slate-500 italic">
+              Historial ya importado
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowImport(true)}
+              className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
+            >
+              Importar históricas
+            </button>
+          )}
         </div>
 
         {/* Search */}
