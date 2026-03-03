@@ -18,6 +18,9 @@ interface Session {
   ai_summary: string | null
   created_at: string
   session_date: string | null
+  fee: number | null
+  paid: boolean
+  audio_duration: number | null
 }
 
 function parseAiSummary(raw: string | null): AiSummary | null {
@@ -115,6 +118,21 @@ function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
   )
 }
 
+function calcFinancials(sessions: Session[]) {
+  const now = new Date()
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  const thisMonth = sessions.filter(
+    (s) => new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at) >= startOfMonth
+  )
+  const income = thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + (s.fee ?? 0), 0)
+  const hoursWorked = thisMonth.reduce(
+    (sum, s) => sum + (s.audio_duration != null ? s.audio_duration : 45),
+    0
+  ) / 60
+  return { sessionsThisMonth: thisMonth.length, income, hoursWorked }
+}
+
 export function PatientMetrics({
   sessions,
   caseSummary,
@@ -124,6 +142,7 @@ export function PatientMetrics({
 }) {
   const summaries = sessions.map(s => parseAiSummary(s.ai_summary)).filter((s): s is AiSummary => s !== null)
   const adherence = calcAdherence(sessions)
+  const financials = calcFinancials(sessions)
 
   if (sessions.length === 0 && !caseSummary) return null
 
@@ -169,6 +188,28 @@ export function PatientMetrics({
       {summaries.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {metrics.map((m) => <MetricCard key={m.label} {...m} />)}
+        </div>
+      )}
+
+      {/* Monthly operational stats */}
+      {sessions.length > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Sesiones este mes</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{financials.sessionsThisMonth}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Ingresos cobrados</p>
+            <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+              {financials.income > 0 ? `$${financials.income.toLocaleString("es-AR")}` : "—"}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Horas trabajadas</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">
+              {financials.sessionsThisMonth > 0 ? `${financials.hoursWorked.toFixed(1)}h` : "—"}
+            </p>
+          </div>
         </div>
       )}
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, Trash2 } from "lucide-react"
 import { TextScramble } from "@/components/ui/text-scramble"
 import { TogglePaid } from "@/components/ui/animated-state-icons"
 
@@ -57,9 +57,10 @@ interface Props {
   session: Session
   token: string
   onUpdate?: () => void
+  onDelete?: (id: string) => void
 }
 
-export function SessionCard({ session, token, onUpdate }: Props) {
+export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [paid, setPaid] = useState(session.paid)
   const [togglingPaid, setTogglingPaid] = useState(false)
@@ -73,6 +74,10 @@ export function SessionCard({ session, token, onUpdate }: Props) {
   const [saving, setSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Delete state
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Local display overrides (updated on save without waiting for reload)
   const [localText, setLocalText] = useState(session.raw_text)
@@ -137,6 +142,28 @@ export function SessionCard({ session, token, onUpdate }: Props) {
       })
       if (res.ok) { setPaid(!paid); onUpdate?.() }
     } catch { /* silently fail */ } finally { setTogglingPaid(false) }
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        onDelete?.(session.id)
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setSaveError(data.error ?? "Error al eliminar")
+        setDeleteConfirm(false)
+      }
+    } catch {
+      setSaveError("Error al eliminar")
+      setDeleteConfirm(false)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   // Use local overrides so edits are reflected immediately
@@ -432,8 +459,37 @@ export function SessionCard({ session, token, onUpdate }: Props) {
             </div>
           )}
 
-          {/* Edit button */}
-          <div className="flex justify-end pt-2 border-t border-gray-100 dark:border-slate-800">
+          {/* Edit / Delete bar */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              {!deleteConfirm ? (
+                <button
+                  onClick={() => setDeleteConfirm(true)}
+                  className="text-gray-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  title="Eliminar sesión"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-600 dark:text-red-400">¿Eliminar esta sesión?</span>
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 px-2 py-0.5 rounded transition-colors"
+                  >
+                    {deleting ? "..." : "Sí, eliminar"}
+                  </button>
+                  <button
+                    onClick={() => setDeleteConfirm(false)}
+                    disabled={deleting}
+                    className="text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={openEdit}
               className="text-xs text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"

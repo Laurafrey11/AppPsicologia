@@ -117,19 +117,33 @@ function downloadTemplate() {
 }
 
 export function ImportSessionsModal({ patientId, token, onClose, onImported }: Props) {
+  const [activeTab, setActiveTab] = useState<"upload" | "paste">("upload")
+
+  // Upload tab state
   const [file, setFile] = useState<File | null>(null)
   const [rows, setRows] = useState<ImportRow[]>([])
   const [isFreeTxt, setIsFreeTxt] = useState(false)
   const [txtPreview, setTxtPreview] = useState<string>("")
   const [txtTruncated, setTxtTruncated] = useState(false)
-  const [parseError, setParseError] = useState<string | null>(null)
-  const [importing, setImporting] = useState(false)
-  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Paste tab state
+  const [pasteText, setPasteText] = useState("")
+
+  // Shared state
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null)
+
   const TXT_MAX_CHARS  = 15_000   // backend hard limit (calibrated to Vercel 10s timeout)
   const TXT_TRIM_CHARS = 13_000   // trim target when file exceeds max
+
+  function switchTab(tab: "upload" | "paste") {
+    setActiveTab(tab)
+    setParseError(null)
+    setResult(null)
+  }
 
   function handleFileSelect(f: File) {
     setFile(f)
@@ -151,10 +165,6 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
         }
 
         const truncated = raw.length > TXT_MAX_CHARS
-        // Compute the preview from the portion that WILL actually be imported,
-        // so the preview reflects oldest-content-first regardless of file order.
-        // Actual upload truncation is re-applied JIT in handleImport to avoid
-        // React state timing issues.
         const previewText = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
 
         setIsFreeTxt(true)
@@ -202,31 +212,43 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
   }
 
   async function handleImport() {
-    if (!file || (rows.length === 0 && !isFreeTxt)) return
     setImporting(true)
     setParseError(null)
     try {
-      // JIT truncation: apply here, just before FormData, so we never depend
-      // on React state having committed the trimmed File.
-      // truncateToOldest detects date order and keeps the OLDEST content,
-      // regardless of whether the file is oldest-first or newest-first.
-      let uploadFile = file
-      if (isFreeTxt) {
-        const raw = await file.text()
-        const trimmed = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
-        if (trimmed.length !== raw.length) {
-          uploadFile = new File([trimmed], file.name, { type: "text/plain" })
+      let uploadFile: File
+      let endpoint: string
+
+      if (activeTab === "paste") {
+        const raw = pasteText.trim()
+        if (!raw) {
+          setParseError("El área de texto está vacía")
+          setImporting(false)
+          return
         }
+        const trimmed = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
+        uploadFile = new File([trimmed], "historial-pegado.txt", { type: "text/plain" })
+        endpoint = `/api/patients/${patientId}/import`
+      } else {
+        if (!file || (rows.length === 0 && !isFreeTxt)) {
+          setImporting(false)
+          return
+        }
+        uploadFile = file
+        if (isFreeTxt) {
+          const raw = await file.text()
+          const trimmed = truncateToOldest(raw, TXT_MAX_CHARS, TXT_TRIM_CHARS)
+          if (trimmed.length !== raw.length) {
+            uploadFile = new File([trimmed], file.name, { type: "text/plain" })
+          }
+        }
+        const ext = uploadFile.name.split(".").pop()?.toLowerCase() ?? ""
+        endpoint = ext === "csv"
+          ? `/api/patients/${patientId}/import-csv`
+          : `/api/patients/${patientId}/import`
       }
+
       const fd = new FormData()
       fd.append("file", uploadFile)
-
-      // CSV → zero-AI route (no timeout risk).
-      // TXT / XLSX → AI-powered route.
-      const ext = uploadFile.name.split(".").pop()?.toLowerCase() ?? ""
-      const endpoint = ext === "csv"
-        ? `/api/patients/${patientId}/import-csv`
-        : `/api/patients/${patientId}/import`
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -247,6 +269,10 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
     }
   }
 
+  const pasteOverLimit = pasteText.length > TXT_MAX_CHARS
+  const canImportUpload = (rows.length > 0 || isFreeTxt) && !parseError
+  const canImportPaste  = pasteText.trim().length > 0
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg border border-gray-200 dark:border-slate-800 p-6 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
@@ -264,27 +290,31 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
           </button>
         </div>
 
-        <div className="space-y-2">
-          <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-3 py-2 flex items-start justify-between gap-3">
-            <p className="text-xs text-emerald-800 dark:text-emerald-300">
-              <span className="font-semibold">CSV (recomendado)</span> — inserción directa, sin IA, sin timeout.
-              Columnas requeridas:{" "}
-              <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">fecha</code> y{" "}
-              <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">texto</code>.
-            </p>
+        {/* Tabs */}
+        {!result && (
+          <div className="flex gap-1 bg-gray-100 dark:bg-slate-800 rounded-lg p-1">
             <button
-              type="button"
-              onClick={downloadTemplate}
-              className="flex-shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-400 underline underline-offset-2 hover:text-emerald-900 dark:hover:text-emerald-200 whitespace-nowrap"
+              onClick={() => switchTab("upload")}
+              className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+                activeTab === "upload"
+                  ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm"
+                  : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+              }`}
             >
-              Descargar plantilla
+              Subir archivo
+            </button>
+            <button
+              onClick={() => switchTab("paste")}
+              className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-colors ${
+                activeTab === "paste"
+                  ? "bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 shadow-sm"
+                  : "text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+              }`}
+            >
+              ✨ Pegar texto
             </button>
           </div>
-          <p className="text-xs text-gray-400 dark:text-slate-500">
-            <span className="font-medium text-gray-600 dark:text-slate-400">TXT</span>{" "}
-            — OpenAI extrae las sesiones automáticamente (máx. 15 000 caracteres, puede ser lento).
-          </p>
-        </div>
+        )}
 
         {/* Result view */}
         {result ? (
@@ -329,8 +359,92 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
               Cerrar
             </button>
           </div>
-        ) : (
+
+        ) : activeTab === "paste" ? (
+          /* ── Paste tab ─────────────────────────────────────────── */
           <>
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
+              <p className="text-xs text-blue-800 dark:text-blue-300">
+                <span className="font-semibold">Pegado inteligente</span> — OpenAI detecta y extrae las sesiones
+                automáticamente del texto libre. Incluye fecha, notas, sentimiento, pensamiento y mecanismo de defensa.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-gray-500 dark:text-slate-400">
+                  Pegá el historial de sesiones aquí
+                </label>
+                <span className={`text-xs ${pasteOverLimit ? "text-red-500" : "text-gray-400 dark:text-slate-500"}`}>
+                  {pasteText.length.toLocaleString("es-AR")} / {TXT_MAX_CHARS.toLocaleString("es-AR")} caracteres
+                  {pasteOverLimit && " (se recortará)"}
+                </span>
+              </div>
+              <textarea
+                value={pasteText}
+                onChange={(e) => { setPasteText(e.target.value); setParseError(null) }}
+                rows={10}
+                placeholder={`Ejemplo:\n\n15/01/2024\nEl paciente llegó angustiado. Refirió conflictos con su pareja...\n\n01/02/2024\nSesión productiva. Se trabajó sobre la regulación emocional...`}
+                className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors resize-y font-mono"
+              />
+            </div>
+
+            {pasteOverLimit && (
+              <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  El texto supera el límite de 15 000 caracteres. Se conservará el tramo más antiguo automáticamente.
+                </p>
+              </div>
+            )}
+
+            {parseError && (
+              <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl px-4 py-3">
+                <p className="text-sm text-red-700 dark:text-red-400">{parseError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 text-sm py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={!canImportPaste || importing}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+              >
+                {importing ? "Procesando con IA..." : "✨ Importar con IA"}
+              </button>
+            </div>
+          </>
+
+        ) : (
+          /* ── Upload tab ────────────────────────────────────────── */
+          <>
+            <div className="space-y-2">
+              <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 px-3 py-2 flex items-start justify-between gap-3">
+                <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                  <span className="font-semibold">CSV (recomendado)</span> — inserción directa, sin IA, sin timeout.
+                  Columnas requeridas:{" "}
+                  <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">fecha</code> y{" "}
+                  <code className="bg-emerald-100 dark:bg-emerald-900 px-1 rounded">texto</code>.
+                </p>
+                <button
+                  type="button"
+                  onClick={downloadTemplate}
+                  className="flex-shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-400 underline underline-offset-2 hover:text-emerald-900 dark:hover:text-emerald-200 whitespace-nowrap"
+                >
+                  Descargar plantilla
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 dark:text-slate-500">
+                <span className="font-medium text-gray-600 dark:text-slate-400">TXT</span>{" "}
+                — OpenAI extrae las sesiones automáticamente (máx. 15 000 caracteres, puede ser lento).
+              </p>
+            </div>
+
             {/* Drop zone */}
             <div
               className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
@@ -449,7 +563,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
               </button>
               <button
                 onClick={handleImport}
-                disabled={(rows.length === 0 && !isFreeTxt) || importing || !!parseError}
+                disabled={!canImportUpload || importing}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium py-2 rounded-lg transition-colors"
               >
                 {importing

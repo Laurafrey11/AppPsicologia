@@ -4,6 +4,7 @@ import {
   updateSessionPaid,
   findSessionById,
   updateSession,
+  deleteSession,
 } from "@/lib/repositories/session.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -23,6 +24,26 @@ const putSchema = z.object({
   fee: z.number().nonnegative("El honorario debe ser positivo").nullable().optional(),
   paid: z.boolean().optional(),
 })
+
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const user = await getAuthUser(req)
+    const existing = await findSessionById(params.id, user.id)
+    if (!existing) {
+      return NextResponse.json({ error: "Sesión no encontrada" }, { status: 404 })
+    }
+    await deleteSession(params.id, user.id)
+    logger.info("Session deleted", { sessionId: params.id, psychologistId: user.id })
+    return NextResponse.json({ ok: true })
+  } catch (error: unknown) {
+    const err = error as Error
+    logger.error("DELETE /api/sessions/[id] failed", { error: err.message })
+    if (error instanceof BaseError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode })
+    }
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {

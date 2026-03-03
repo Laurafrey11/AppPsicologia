@@ -215,6 +215,15 @@ export async function updateSession(
   return session
 }
 
+export async function deleteSession(id: string, psychologistId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("sessions")
+    .delete()
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+  if (error) throw new Error(error.message)
+}
+
 export async function updateSessionPaid(
   id: string,
   psychologistId: string,

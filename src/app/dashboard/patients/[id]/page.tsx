@@ -282,7 +282,13 @@ export default function PatientDetailPage() {
         ) : (
           <div className="space-y-3">
             {filteredSessions.map((s) => (
-              <SessionCard key={s.id} session={s} token={token!} onUpdate={load} />
+              <SessionCard
+                key={s.id}
+                session={s}
+                token={token!}
+                onUpdate={load}
+                onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
+              />
             ))}
           </div>
         )}
