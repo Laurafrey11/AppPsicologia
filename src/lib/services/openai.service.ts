@@ -343,7 +343,7 @@ export async function generateCaseAnalysis(
   sessions: Array<{ fecha: string; texto: string }>
 ): Promise<CaseAnalysis> {
   if (sessions.length === 0) {
-    return { summary: "", has_risk: false, tags: [], clinical_advice: "" }
+    return { summary: "", has_risk: false, tags: [], clinical_advice: "", scores: [] }
   }
   const openai = getOpenAI()
 
