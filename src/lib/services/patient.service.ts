@@ -1,6 +1,6 @@
 import {
   insertPatient,
-  findActivePatients,
+  findActivePatientsWithRisk,
   findPatientById,
   updatePatient,
   deletePatient,
@@ -33,11 +33,11 @@ export async function createPatient(
 }
 
 /**
- * Returns all active patients for a psychologist.
+ * Returns all active patients for a psychologist, with risk flag.
  * Inactive patients (discharged) are excluded from the list.
  */
-export async function listPatients(psychologistId: string): Promise<Patient[]> {
-  return findActivePatients(psychologistId)
+export async function listPatients(psychologistId: string): Promise<(Patient & { has_risk: boolean })[]> {
+  return findActivePatientsWithRisk(psychologistId)
 }
 
 /**

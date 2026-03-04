@@ -78,7 +78,7 @@ export default function SupervisionPage() {
 
   if (loading) return (
     <div className="flex items-center justify-center h-full">
-      <p className="text-sm text-gray-400 dark:text-slate-500">Cargando datos de supervisión...</p>
+      <p className="text-sm text-gray-400 dark:text-slate-500">Cargando datos de interconsulta...</p>
     </div>
   )
 
@@ -88,11 +88,13 @@ export default function SupervisionPage() {
     </div>
   )
 
-  if (data.total_sessions === 0) return (
+  if (data.total_sessions < 5) return (
     <div className="max-w-3xl mx-auto py-8 px-6">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-2">Supervisión asistida por IA</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100 mb-2">Interconsulta IA</h1>
       <p className="text-sm text-gray-500 dark:text-slate-400">
-        Aún no hay sesiones con análisis IA. Creá sesiones para ver patrones aquí.
+        {data.total_sessions > 0
+          ? `Tu colega virtual está analizando el caso. Faltan ${5 - data.total_sessions} sesión${5 - data.total_sessions !== 1 ? "es" : ""} para tu primera interconsulta.`
+          : "Tu colega virtual está analizando el caso. Faltan 5 sesiones para tu primera interconsulta."}
       </p>
     </div>
   )
@@ -100,7 +102,7 @@ export default function SupervisionPage() {
   return (
     <div className="max-w-3xl mx-auto py-8 px-6 space-y-6">
       <div className="mb-2">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Supervisión asistida por IA</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Interconsulta IA</h1>
         <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
           Patrones agregados de {data.total_sessions} sesión{data.total_sessions !== 1 ? "es" : ""} — {data.patient_count} paciente{data.patient_count !== 1 ? "s" : ""}
         </p>

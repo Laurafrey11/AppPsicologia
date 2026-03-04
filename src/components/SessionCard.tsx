@@ -24,6 +24,8 @@ interface AiSummary {
   pensamiento_predominante?: string
   mecanismo_defensa?: string
   tematica_predominante?: string
+  has_risk?: boolean
+  tags?: string[]
 }
 
 interface Session {
@@ -97,6 +99,11 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
   const [localDate, setLocalDate] = useState(session.session_date)
   const [localFee, setLocalFee] = useState(session.fee)
 
+  // Tags state
+  const [localTags, setLocalTags] = useState<string[]>(parseAiSummary(session.ai_summary)?.tags ?? [])
+  const [addingTag, setAddingTag] = useState(false)
+  const [newTagInput, setNewTagInput] = useState("")
+
   const summary = parseAiSummary(session.ai_summary)
   const hasNotes = session.session_notes && NOTE_LABELS.some(({ key }) => session.session_notes?.[key])
 
@@ -135,6 +142,7 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
         ...(editMecanismo   ? { mecanismo_defensa: editMecanismo } : {}),
         ...(editTematica    ? { tematica_predominante: editTematica } : {}),
         ...(editMainTopic   ? { main_topic: editMainTopic } : {}),
+        tags: localTags,
       }
       const aiSummaryPayload = Object.keys(updatedSummary).length > 0
         ? JSON.stringify(updatedSummary)
@@ -218,6 +226,38 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
     }
   }
 
+  async function handleAddTag(tag: string) {
+    const trimmed = tag.trim().replace(/^#/, "")
+    if (!trimmed || localTags.includes(trimmed)) { setNewTagInput(""); setAddingTag(false); return }
+    const newTags = [...localTags, trimmed]
+    const existingSummary = parseAiSummary(session.ai_summary) ?? {}
+    const updatedSummary = JSON.stringify({ ...existingSummary, tags: newTags })
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: session.raw_text ?? "", ai_summary: updatedSummary }),
+      })
+      if (res.ok) setLocalTags(newTags)
+    } catch { /* silently fail */ }
+    setNewTagInput("")
+    setAddingTag(false)
+  }
+
+  async function handleRemoveTag(tag: string) {
+    const newTags = localTags.filter((t) => t !== tag)
+    const existingSummary = parseAiSummary(session.ai_summary) ?? {}
+    const updatedSummary = JSON.stringify({ ...existingSummary, tags: newTags })
+    try {
+      const res = await fetch(`/api/sessions/${session.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: session.raw_text ?? "", ai_summary: updatedSummary }),
+      })
+      if (res.ok) setLocalTags(newTags)
+    } catch { /* silently fail */ }
+  }
+
   // Use local overrides so edits are reflected immediately
   const displayDate = localDate
     ? new Date(localDate + "T12:00:00").toLocaleDateString("es-AR", {
@@ -258,6 +298,15 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
               {aiPills.map((p, i) => (
                 <span key={i} className={`text-xs border px-2 py-0.5 rounded-full ${p.color}`}>
                   {p.label}
+                </span>
+              ))}
+            </div>
+          )}
+          {localTags.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {localTags.map((tag) => (
+                <span key={tag} className="text-xs bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 px-1.5 py-0.5 rounded">
+                  #{tag}
                 </span>
               ))}
             </div>
@@ -569,6 +618,38 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
               )}
             </div>
           )}
+
+          {/* Tags */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            {localTags.map((tag) => (
+              <span key={tag} className="inline-flex items-center gap-1 text-xs bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300 px-2 py-0.5 rounded group">
+                #{tag}
+                <button
+                  onClick={() => handleRemoveTag(tag)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 dark:hover:text-red-400 leading-none"
+                  title="Quitar etiqueta"
+                >×</button>
+              </span>
+            ))}
+            {addingTag ? (
+              <input
+                autoFocus
+                type="text"
+                value={newTagInput}
+                onChange={(e) => setNewTagInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleAddTag(newTagInput); if (e.key === "Escape") { setAddingTag(false); setNewTagInput("") } }}
+                onBlur={() => handleAddTag(newTagInput)}
+                placeholder="Nueva etiqueta"
+                className="text-xs border border-gray-300 dark:border-slate-700 rounded px-2 py-0.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 w-28"
+              />
+            ) : (
+              <button
+                onClick={() => setAddingTag(true)}
+                className="text-xs text-gray-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 border border-dashed border-gray-300 dark:border-slate-700 px-1.5 py-0.5 rounded transition-colors"
+                title="Agregar etiqueta"
+              >+ etiqueta</button>
+            )}
+          </div>
 
           {/* Edit / Delete bar */}
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-slate-800">

@@ -110,6 +110,9 @@ export default function PatientDetailPage() {
   const [supervisionReport, setSupervisionReport] = useState<string | null>(null)
   const [generatingSupervision, setGeneratingSupervision] = useState(false)
   const [supervisionError, setSupervisionError] = useState<string | null>(null)
+  const [editingReason, setEditingReason] = useState(false)
+  const [reasonDraft, setReasonDraft] = useState("")
+  const [savingReason, setSavingReason] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -182,6 +185,23 @@ export default function PatientDetailPage() {
     setPatient(updated)
   }
 
+  async function handleSaveReason() {
+    if (!token || !patient) return
+    setSavingReason(true)
+    try {
+      const updated = await apiFetch<Patient>(`/api/patients/${id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ reason: reasonDraft }),
+      })
+      setPatient(updated)
+      setEditingReason(false)
+    } catch (err: unknown) {
+      setError((err as Error).message)
+    } finally {
+      setSavingReason(false)
+    }
+  }
+
   async function handleGenerateSupervision() {
     if (!token) return
     setGeneratingSupervision(true)
@@ -214,8 +234,24 @@ export default function PatientDetailPage() {
 
   const filteredSessions = filterSessions(sessions, searchQuery)
 
+  // Detect risk from the most recent session that has an ai_summary
+  const hasRisk = sessions.some((s) => {
+    if (!s.ai_summary) return false
+    try { return (JSON.parse(s.ai_summary) as { has_risk?: boolean }).has_risk === true } catch { return false }
+  })
+
   return (
     <div className="max-w-3xl mx-auto py-8 px-6">
+      {/* Risk banner */}
+      {hasRisk && (
+        <div className="mb-4 rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-4 py-3 flex items-center gap-2 animate-pulse">
+          <span className="text-red-500 text-lg flex-shrink-0">⚠</span>
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">
+            Atención: Patrones de riesgo detectados en la última sesión
+          </p>
+        </div>
+      )}
+
       {/* Patient Header */}
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
@@ -267,7 +303,7 @@ export default function PatientDetailPage() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                Supervisión clínica
+                Interconsulta IA
               </h2>
               {sessions.length % 5 === 0 && !supervisionReport && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
@@ -280,7 +316,7 @@ export default function PatientDetailPage() {
               disabled={generatingSupervision}
               className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
             >
-              {generatingSupervision ? "Generando..." : supervisionReport ? "Regenerar informe" : "Generar informe"}
+              {generatingSupervision ? "Consultando..." : supervisionReport ? "Nueva interconsulta" : "Consultar colega IA"}
             </button>
           </div>
 
@@ -308,10 +344,51 @@ export default function PatientDetailPage() {
 
       {/* Reason */}
       <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-        <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-          Motivo de consulta
-        </h2>
-        <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{patient.reason}</p>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+            Motivo de consulta
+          </h2>
+          {!editingReason && (
+            <button
+              onClick={() => { setReasonDraft(patient.reason); setEditingReason(true) }}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Editar
+            </button>
+          )}
+        </div>
+        {editingReason ? (
+          <div className="flex flex-col gap-2">
+            <textarea
+              value={reasonDraft}
+              onChange={(e) => setReasonDraft(e.target.value)}
+              rows={4}
+              className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors resize-y w-full"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setEditingReason(false)}
+                className="text-xs text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200 px-3 py-1.5 border border-gray-200 dark:border-slate-700 rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveReason}
+                disabled={savingReason || reasonDraft.trim().length < 5}
+                className="text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {savingReason ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p
+            className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap cursor-pointer hover:text-gray-900 dark:hover:text-slate-100 transition-colors"
+            onClick={() => { setReasonDraft(patient.reason); setEditingReason(true) }}
+          >
+            {patient.reason}
+          </p>
+        )}
       </section>
 
       {/* Sessions */}

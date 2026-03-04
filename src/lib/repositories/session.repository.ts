@@ -20,6 +20,8 @@ export type AiSummary = {
   pensamiento_predominante: string
   mecanismo_defensa: string
   tematica_predominante: string
+  has_risk?: boolean
+  tags?: string[]
 }
 
 export type Session = {
@@ -283,10 +285,13 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
     .eq("psychologist_id", psychologistId)
     .eq("is_active", false)
 
-  // This month stats
-  const thisMonthSessions = sessions.filter(
-    (s) => new Date(s.created_at) >= startOfMonth
-  )
+  // This month stats — prefer session_date when set (historical imports use it)
+  const thisMonthSessions = sessions.filter((s) => {
+    const d = s.session_date
+      ? new Date(s.session_date + "T12:00:00")
+      : new Date(s.created_at)
+    return d >= startOfMonth
+  })
   const income_this_month = thisMonthSessions
     .filter((s) => s.paid)
     .reduce((sum, s) => sum + (s.fee ?? 0), 0)

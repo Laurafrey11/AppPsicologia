@@ -149,7 +149,17 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
       setResult(data)
       if (data.imported > 0) onImported()
     } catch (err) {
-      setParseError((err as Error).message)
+      const msg = (err as Error).message ?? ""
+      if (
+        msg.toLowerCase().includes("timeout") ||
+        msg.toLowerCase().includes("failed to fetch") ||
+        msg.toLowerCase().includes("aborted") ||
+        msg.toLowerCase().includes("networkerror")
+      ) {
+        setParseError("El texto es muy extenso. Intentá pegando menos sesiones a la vez para evitar sobrecargar el sistema.")
+      } else {
+        setParseError(msg)
+      }
     } finally {
       setImporting(false)
     }
@@ -242,7 +252,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
             {pasteOverLimit && (
               <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5">
                 <p className="text-xs text-amber-800 dark:text-amber-300">
-                  Solo podemos procesar los últimos 15.000 caracteres (aprox. 5–8 sesiones). Si tenés más historial, te sugerimos priorizar lo más reciente — se tomará el fragmento final automáticamente.
+                  Historial extenso detectado: hemos seleccionado automáticamente las sesiones más recientes para su procesamiento.
                 </p>
               </div>
             )}

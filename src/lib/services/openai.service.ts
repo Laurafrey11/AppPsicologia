@@ -53,8 +53,13 @@ Formato requerido:
   "sentimiento_predominante": "string — la emoción o sentimiento más predominante (ej: Tristeza, Ansiedad, Enojo, Culpa, Miedo, Vergüenza, Alegría, Ambivalencia)",
   "pensamiento_predominante": "string — el patrón de pensamiento más destacado (ej: Catastrofización, Pensamiento dicotómico, Sobregeneralización, Personalización, Minimización, Rumiación)",
   "mecanismo_defensa": "string — el mecanismo de defensa más evidente (ej: Proyección, Racionalización, Negación, Disociación, Sublimación, Represión, Desplazamiento, Intelectualización)",
-  "tematica_predominante": "string — la temática central del caso (ej: Vínculos familiares, Autoestima, Duelo, Trauma, Identidad, Relaciones de pareja, Trabajo/rendimiento, Ansiedad social)"
-}`,
+  "tematica_predominante": "string — la temática central del caso (ej: Vínculos familiares, Autoestima, Duelo, Trauma, Identidad, Relaciones de pareja, Trabajo/rendimiento, Ansiedad social)",
+  "has_risk": false,
+  "tags": ["máximo 3 etiquetas clínicas cortas"]
+}
+
+Regla has_risk: ponelo true ÚNICAMENTE si el texto menciona explícitamente ideas autolíticas, riesgo de vida inminente o violencia grave. En todos los demás casos debe ser false.
+Regla tags: generá entre 1 y 3 etiquetas descriptivas cortas (2-4 palabras cada una) que capturen los temas clave de la sesión.`,
       },
       {
         role: "user",
@@ -166,7 +171,9 @@ Devolvé ÚNICAMENTE este JSON (sin texto adicional):
       "sentimiento_predominante": "Tristeza | Ansiedad | Enojo | Culpa | Miedo | Vergüenza | Alegría | Ambivalencia",
       "pensamiento_predominante": "Catastrofización | Pensamiento dicotómico | Sobregeneralización | Personalización | Minimización | Rumiación",
       "mecanismo_defensa": "Proyección | Racionalización | Negación | Disociación | Sublimación | Represión | Desplazamiento | Intelectualización",
-      "tematica_predominante": "Vínculos familiares | Autoestima | Duelo | Trauma | Identidad | Relaciones de pareja | Trabajo/rendimiento | Ansiedad social"
+      "tematica_predominante": "Vínculos familiares | Autoestima | Duelo | Trauma | Identidad | Relaciones de pareja | Trabajo/rendimiento | Ansiedad social",
+      "has_risk": false,
+      "tags": ["máximo 3 etiquetas clínicas cortas"]
     }
   ]
 }
@@ -174,6 +181,8 @@ Devolvé ÚNICAMENTE este JSON (sin texto adicional):
 Reglas estrictas:
 - El array "summaries" debe tener EXACTAMENTE ${chunk.length} elementos en el MISMO ORDEN que la entrada.
 - Si una sesión tiene texto insuficiente para analizar, devolvé null en esa posición.
+- has_risk: true ÚNICAMENTE si hay ideas autolíticas, riesgo de vida inminente o violencia grave. En todos los demás casos false.
+- tags: entre 1 y 3 etiquetas descriptivas cortas (2-4 palabras) que capturen los temas clave.
 - Respondé ÚNICAMENTE con JSON válido.`,
           },
           {
@@ -237,16 +246,16 @@ export async function generateSupervisionReport(summaries: AiSummary[]): Promise
     messages: [
       {
         role: "system",
-        content: `Sos un supervisor clínico experto. Dado el historial de análisis de sesiones de un paciente, generá un informe de supervisión clínica estructurado.
+        content: `Sos un colega clínico de confianza que da una segunda opinión sobre el proceso terapéutico. Dado el historial de análisis de sesiones de un paciente, generá una interconsulta clínica estructurada desde un lugar de colegiatura, no de evaluación.
 
-El informe debe incluir:
+La interconsulta debe incluir:
 1. Patrones recurrentes detectados (temáticas, emociones, mecanismos de defensa prevalentes)
 2. Evolución observada a lo largo del proceso
-3. Hipótesis clínicas consolidadas
-4. Puntos de atención para el terapeuta
-5. Recomendaciones técnicas para las próximas sesiones
+3. Hipótesis clínicas consolidadas (como segunda opinión, no como diagnóstico)
+4. Puntos que podrían merecer atención o exploración adicional
+5. Sugerencias técnicas para las próximas sesiones, desde un tono colaborativo
 
-Usá lenguaje profesional y clínico. No incluyas diagnósticos. Máximo 4 párrafos.`,
+Usá lenguaje profesional y clínico, como si hablaras con un colega de confianza. No incluyas diagnósticos. Máximo 4 párrafos.`,
       },
       {
         role: "user",

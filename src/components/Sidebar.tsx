@@ -12,6 +12,7 @@ interface Patient {
   id: string
   name: string
   age: number
+  has_risk?: boolean
 }
 
 export function Sidebar() {
@@ -78,7 +79,7 @@ export function Sidebar() {
       <nav className="px-2 pb-1 border-b border-gray-100 dark:border-slate-800">
         {[
           { href: "/dashboard/estadisticas", label: "Dashboard", icon: "📊" },
-          { href: "/dashboard/supervision", label: "Supervisión IA", icon: "🔬" },
+          { href: "/dashboard/supervision", label: "Interconsulta IA", icon: "🧠" },
           { href: "/dashboard/perfil", label: "Perfil", icon: "⚙️" },
         ].map(({ href, label, icon }) => {
           const active = pathname === href
@@ -121,6 +122,9 @@ export function Sidebar() {
               }`}
             >
               <span className="flex-1 truncate">{p.name}</span>
+              {p.has_risk && (
+                <span className="text-red-500 animate-pulse flex-shrink-0 text-sm" title="Patrones de riesgo detectados">⚠</span>
+              )}
               <span className="text-xs text-gray-400 dark:text-slate-500 flex-shrink-0">{p.age}a</span>
             </Link>
           )

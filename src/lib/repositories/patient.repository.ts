@@ -45,6 +45,40 @@ export async function findActivePatients(psychologistId: string): Promise<Patien
   return data ?? []
 }
 
+/**
+ * Returns active patients with a `has_risk` boolean flag.
+ * Uses 2 queries: one for patients, one to find which patient_ids have
+ * at least one session where ai_summary contains "has_risk":true.
+ */
+export async function findActivePatientsWithRisk(
+  psychologistId: string
+): Promise<(Patient & { has_risk: boolean })[]> {
+  const [patientsResult, riskResult] = await Promise.all([
+    supabaseAdmin
+      .from("patients")
+      .select("*")
+      .eq("psychologist_id", psychologistId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false }),
+    supabaseAdmin
+      .from("sessions")
+      .select("patient_id")
+      .eq("psychologist_id", psychologistId)
+      .like("ai_summary", '%"has_risk":true%'),
+  ])
+
+  if (patientsResult.error) throw new Error(patientsResult.error.message)
+
+  const riskPatientIds = new Set(
+    (riskResult.data ?? []).map((r) => r.patient_id)
+  )
+
+  return (patientsResult.data ?? []).map((p) => ({
+    ...p,
+    has_risk: riskPatientIds.has(p.id),
+  }))
+}
+
 /** Returns a single patient only if it belongs to the given psychologist. */
 export async function findPatientById(
   id: string,
