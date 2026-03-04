@@ -401,6 +401,116 @@ El array "scores" debe tener exactamente un elemento por cada sesión del input,
   }
 }
 
+// ── Incremental chunking helpers ────────────────────────────────────────────
+
+type BatchScore = { fecha: string; animo: number; ansiedad: number }
+type BatchResult = { scores: BatchScore[]; has_risk: boolean; key_themes: string[] }
+
+/**
+ * Generates mood/anxiety scores for a small batch of sessions (≤5).
+ * Designed to finish within Vercel's 10-second timeout.
+ */
+export async function generateBatchScores(
+  sessions: Array<{ fecha: string; texto: string }>
+): Promise<BatchResult> {
+  if (sessions.length === 0) return { scores: [], has_risk: false, key_themes: [] }
+  const openai = getOpenAI()
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Analizá estas sesiones clínicas y devolvé SOLO JSON válido:
+{
+  "scores": [{"fecha":"YYYY-MM-DD","animo":7,"ansiedad":4}],
+  "has_risk": false,
+  "key_themes": ["máximo 3 temas clave"]
+}
+Reglas:
+- Un score por cada sesión del input, mismo orden
+- animo: 1-10 (1=muy bajo, 10=muy alto)
+- ansiedad: 1-10 (1=sin ansiedad, 10=extrema)
+- has_risk: true SOLO si hay ideas autolíticas o riesgo de vida inminente
+- key_themes: máximo 3 conceptos clínicos del grupo`,
+      },
+      {
+        role: "user",
+        content: JSON.stringify(sessions.map(s => ({ fecha: s.fecha, texto: s.texto }))),
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.2,
+    max_tokens: 800,
+  })
+  const content = response.choices[0]?.message?.content
+  if (!content) return { scores: [], has_risk: false, key_themes: [] }
+  try {
+    const parsed = JSON.parse(content) as Partial<BatchResult>
+    return {
+      scores: Array.isArray(parsed.scores) ? (parsed.scores as BatchScore[]) : [],
+      has_risk: !!parsed.has_risk,
+      key_themes: Array.isArray(parsed.key_themes) ? (parsed.key_themes as string[]) : [],
+    }
+  } catch {
+    return { scores: [], has_risk: false, key_themes: [] }
+  }
+}
+
+/**
+ * Final synthesis: combines accumulated scores + themes into a full CaseAnalysis.
+ * Called after all session batches have been scored.
+ */
+export async function synthesizeCaseAnalysis(
+  scores: BatchScore[],
+  keyThemes: string[],
+  hasRisk: boolean,
+  sessionCount: number
+): Promise<CaseAnalysis> {
+  if (scores.length === 0) {
+    return { summary: "", has_risk: hasRisk, tags: [], clinical_advice: "", scores: [] }
+  }
+  const openai = getOpenAI()
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Actuás como supervisor clínico. Se te dan los puntajes de evolución de un paciente (${sessionCount} sesiones en total) y los temas clave detectados a lo largo del proceso.
+Generá una síntesis clínica concisa. Respondé ÚNICAMENTE con JSON válido:
+{
+  "summary": "Dos párrafos: evolución clínica y temas recurrentes",
+  "has_risk": ${hasRisk},
+  "tags": ["3-5 etiquetas técnicas"],
+  "clinical_advice": "Un párrafo de sugerencia para el terapeuta desde perspectiva de colega",
+  "scores": []
+}
+IMPORTANTE: el campo "scores" debe estar vacío ([]) — los scores se agregan por separado.`,
+      },
+      {
+        role: "user",
+        content: JSON.stringify({ scores, key_themes: keyThemes, session_count: sessionCount }),
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.3,
+    max_tokens: 1000,
+  })
+  const content = response.choices[0]?.message?.content
+  if (!content) return { summary: "", has_risk: hasRisk, tags: [], clinical_advice: "", scores }
+  try {
+    const parsed = JSON.parse(content) as Omit<CaseAnalysis, "scores">
+    return {
+      summary: parsed.summary ?? "",
+      has_risk: hasRisk || !!parsed.has_risk,
+      tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+      clinical_advice: parsed.clinical_advice ?? "",
+      scores, // always use the accumulated scores, not whatever AI returns
+    }
+  } catch {
+    return { summary: "", has_risk: hasRisk, tags: [], clinical_advice: "", scores }
+  }
+}
+
 export async function generateCaseSummary(summaries: AiSummary[]): Promise<string> {
   if (summaries.length === 0) return ""
   const openai = getOpenAI()

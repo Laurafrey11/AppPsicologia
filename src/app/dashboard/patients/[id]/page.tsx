@@ -116,6 +116,7 @@ export default function PatientDetailPage() {
   const [consultationLimitReached, setConsultationLimitReached] = useState(false)
   const [markingAllPaid, setMarkingAllPaid] = useState(false)
   const [fillProgress, setFillProgress] = useState<{ current: number; total: number } | null>(null)
+  const [fillLabel, setFillLabel] = useState<string | null>(null)
   const [fillError, setFillError] = useState<string | null>(null)
   const [fillDone, setFillDone] = useState(false)
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
@@ -242,17 +243,31 @@ export default function PatientDetailPage() {
     if (!token) return
     setFillError(null)
     setFillDone(false)
-    const total = sessions.filter((s) => s.raw_text?.trim()).length
-    setFillProgress({ current: 0, total })
+    setFillLabel("Iniciando análisis...")
+    setFillProgress({ current: 0, total: sessions.length })
     try {
-      // Global analysis: reads all sessions, generates scores per session, saves to case_summary
-      await apiFetch<{ analysis: unknown; sessionCount: number }>(
-        `/api/patients/${id}/process-history`,
-        token,
-        { method: "POST" }
-      )
-      setFillDone(true)
-      await load()
+      let isFirst = true
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const data = await apiFetch<
+          | { done: false; processed: number; total: number; label: string }
+          | { done: true; analysis: unknown; sessionCount: number }
+        >(
+          `/api/patients/${id}/process-history`,
+          token,
+          { method: "POST", body: JSON.stringify(isFirst ? { reset: true } : {}) }
+        )
+        isFirst = false
+        if (data.done) {
+          setFillDone(true)
+          setFillLabel(null)
+          await load()
+          break
+        } else {
+          setFillLabel(data.label)
+          setFillProgress({ current: data.processed, total: data.total })
+        }
+      }
     } catch (err: unknown) {
       setFillError((err as Error).message)
     } finally {
@@ -461,8 +476,8 @@ export default function PatientDetailPage() {
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
                 {fillDone
                   ? "Análisis completado — gráfico de evolución actualizado"
-                  : fillProgress
-                  ? `Analizando ${sessions.length} sesiones...`
+                  : fillLabel
+                  ? fillLabel
                   : patient.case_summary
                   ? "Análisis previo disponible — podés re-analizar"
                   : "Genera el análisis para activar el gráfico de evolución clínica"}
@@ -477,7 +492,9 @@ export default function PatientDetailPage() {
               </button>
             )}
             {fillProgress && (
-              <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">Analizando...</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
+                {fillLabel ?? "Analizando..."}
+              </span>
             )}
           </div>
           {fillError && (
