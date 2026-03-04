@@ -64,7 +64,9 @@ export async function findActivePatientsWithRisk(
       .from("sessions")
       .select("patient_id")
       .eq("psychologist_id", psychologistId)
-      .like("ai_summary", '%"has_risk":true%'),
+      // Cover both JSON.stringify compact format ("has_risk":true) and
+      // pretty-printed format ("has_risk": true) just in case
+      .or('ai_summary.like.%"has_risk":true%,ai_summary.like.%"has_risk": true%'),
   ])
 
   if (patientsResult.error) throw new Error(patientsResult.error.message)

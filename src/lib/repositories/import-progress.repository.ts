@@ -66,7 +66,10 @@ export async function processImportInitial(
     p_file_ext:        fileExt,
   })
   if (error) throw new Error(error.message)
-  return data as { imported_count: number; remaining_count: number; can_continue: boolean }
+  // Supabase can return data as an array or as null — normalize either case
+  const result = Array.isArray(data) ? data[0] : data
+  if (!result) throw new Error("process_import_initial returned no data — the DB function may have failed silently")
+  return result as { imported_count: number; remaining_count: number; can_continue: boolean }
 }
 
 /**

@@ -137,6 +137,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       throw err
     }
 
+    if (!importResult) {
+      logger.error("processImportInitial returned null unexpectedly (CSV)", { patientId })
+      return NextResponse.json({ error: "Error interno al procesar la importación. Intentá de nuevo." }, { status: 500 })
+    }
+
     logger.info("CSV imported (no AI)", {
       patientId,
       imported: importResult.imported_count,

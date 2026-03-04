@@ -326,6 +326,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
       throw err
     }
+    if (!importResult) {
+      logger.error("processImportInitial returned null unexpectedly", { patientId })
+      return NextResponse.json({ error: "Error interno al procesar la importación. Intentá de nuevo." }, { status: 500 })
+    }
     const imported       = importResult.imported_count
     const remainingCount = importResult.remaining_count
     const canContinue    = importResult.can_continue

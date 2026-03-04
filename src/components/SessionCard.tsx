@@ -43,7 +43,13 @@ interface Session {
 
 function parseAiSummary(raw: string | null): AiSummary | null {
   if (!raw) return null
-  try { return JSON.parse(raw) as AiSummary } catch { return null }
+  try {
+    const parsed = JSON.parse(raw) as AiSummary
+    // Ensure optional fields have safe defaults so callers don't need to null-check
+    if (parsed.tags === undefined) parsed.tags = []
+    if (parsed.has_risk === undefined) parsed.has_risk = false
+    return parsed
+  } catch { return null }
 }
 
 const NOTE_LABELS: { key: keyof SessionNotes; label: string }[] = [
