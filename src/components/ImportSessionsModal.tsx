@@ -156,7 +156,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
         msg.toLowerCase().includes("aborted") ||
         msg.toLowerCase().includes("networkerror")
       ) {
-        setParseError("El texto es muy extenso. Intentá pegando menos sesiones a la vez para evitar sobrecargar el sistema.")
+        setParseError("Error de red. Verificá tu conexión e intentá de nuevo.")
       } else {
         setParseError(msg)
       }
@@ -229,7 +229,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
           <>
             <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-3 py-2">
               <p className="text-xs text-blue-800 dark:text-blue-300">
-                <span className="font-semibold">Pegado inteligente</span> — pegá el historial en texto libre y la IA extraerá las sesiones automáticamente (fecha, notas, análisis clínico). Solo se puede realizar una vez por paciente.
+                <span className="font-semibold">Pegado automático</span> — pegá el historial en texto libre. Detectamos sesiones por fechas (15/03/2024) o párrafos separados. Si no hay fechas, se guarda como una sesión. El análisis clínico lo podés ejecutar después.
               </p>
             </div>
 
@@ -252,7 +252,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
             {pasteOverLimit && (
               <div className="rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5">
                 <p className="text-xs text-amber-800 dark:text-amber-300">
-                  Historial extenso detectado: hemos seleccionado automáticamente las sesiones más recientes para su procesamiento.
+                  Texto extenso — se procesarán todas las sesiones detectadas. Podés dividirlo en varias importaciones si preferís.
                 </p>
               </div>
             )}
@@ -272,7 +272,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
                 disabled={!canImportPaste || importing}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium py-2 rounded-lg transition-colors"
               >
-                {importing ? "Procesando con IA..." : "✨ Importar con IA"}
+                {importing ? "Importando..." : "Importar sesiones"}
               </button>
             </div>
           </>

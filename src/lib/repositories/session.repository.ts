@@ -222,6 +222,42 @@ export async function updateSession(
   return session
 }
 
+/**
+ * Directly inserts multiple sessions without going through the RPC.
+ * Used by import routes to bypass process_import_initial and avoid
+ * "no data" errors from the Supabase RPC wrapper.
+ *
+ * Returns the number of successfully inserted sessions.
+ */
+export async function bulkInsertSessions(
+  sessions: Array<{
+    patient_id: string
+    psychologist_id: string
+    raw_text: string
+    session_date: string | null
+  }>
+): Promise<number> {
+  if (sessions.length === 0) return 0
+  const payload = sessions.map((s) => ({
+    patient_id:      s.patient_id,
+    psychologist_id: s.psychologist_id,
+    raw_text:        s.raw_text,
+    transcription:   null,
+    ai_summary:      null,
+    audio_duration:  null,
+    session_notes:   null,
+    paid:            false,
+    fee:             null,
+    session_date:    s.session_date,
+  }))
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .insert(payload)
+    .select("id")
+  if (error) throw new Error(error.message)
+  return (data ?? []).length
+}
+
 export async function deleteSession(id: string, psychologistId: string): Promise<void> {
   const { error } = await supabaseAdmin
     .from("sessions")

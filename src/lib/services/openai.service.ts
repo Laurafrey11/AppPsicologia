@@ -326,6 +326,71 @@ Usá lenguaje profesional y clínico, como si hablaras con un colega de confianz
   return content
 }
 
+export type CaseAnalysis = {
+  summary: string
+  has_risk: boolean
+  tags: string[]
+  clinical_advice: string
+}
+
+/**
+ * Transversal case analysis using a master clinical supervisor prompt.
+ * Receives all sessions (with raw text) and returns a structured JSON analysis.
+ * Used by the "Procesar historial con IA" on-demand button.
+ */
+export async function generateCaseAnalysis(
+  sessions: Array<{ fecha: string; texto: string }>
+): Promise<CaseAnalysis> {
+  if (sessions.length === 0) {
+    return { summary: "", has_risk: false, tags: [], clinical_advice: "" }
+  }
+  const openai = getOpenAI()
+
+  const MAX_CHARS_PER_SESSION = 1500
+  const context = sessions
+    .map((s, i) => `Sesión ${i + 1} (${s.fecha}):\n${s.texto.slice(0, MAX_CHARS_PER_SESSION)}`)
+    .join("\n\n")
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Actuás como un supervisor clínico experto con 20 años de experiencia. Se te proporcionará un listado de sesiones de un paciente (fecha y contenido bruto).
+
+Tu tarea es:
+1. Realizar una lectura transversal de todo el historial.
+2. Identificar patrones de comportamiento y evolución de síntomas.
+3. Detectar indicadores de riesgo (has_risk: true ÚNICAMENTE si hay ideas autolíticas, riesgo de vida inminente o violencia grave; en todos los demás casos false).
+4. Generar 3-5 etiquetas técnicas (tags) que resuman la problemática principal (ej: #Duelo, #Transferencia, #AnsiedadSocial).
+5. Redactar un informe de interconsulta en tono de colega, breve (máximo 3 párrafos), destacando avances y puntos ciegos para el terapeuta.
+
+Respondé ÚNICAMENTE con JSON válido, sin texto adicional:
+{
+  "summary": "Dos párrafos: evolución clínica y temas recurrentes",
+  "has_risk": false,
+  "tags": ["Tag1", "Tag2"],
+  "clinical_advice": "Un párrafo de sugerencia para el terapeuta desde perspectiva de colega"
+}`,
+      },
+      {
+        role: "user",
+        content: context.slice(0, 14000),
+      },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.3,
+  })
+
+  const content = response.choices[0]?.message?.content
+  if (!content) throw new Error("OpenAI returned empty response for case analysis")
+  try {
+    return JSON.parse(content) as CaseAnalysis
+  } catch {
+    throw new Error("OpenAI returned invalid JSON for case analysis")
+  }
+}
+
 export async function generateCaseSummary(summaries: AiSummary[]): Promise<string> {
   if (summaries.length === 0) return ""
   const openai = getOpenAI()
