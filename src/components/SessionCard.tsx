@@ -309,17 +309,19 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
 
       {/* ── Analyze banner (visible without expanding the card) ── */}
       {!session.ai_summary && session.raw_text?.trim() && (
-        <div className="flex items-center justify-between px-5 py-2 bg-violet-50 dark:bg-violet-950/20 border-b border-violet-100 dark:border-violet-900">
-          <span className="text-xs text-violet-500 dark:text-violet-400">Sin análisis IA</span>
+        <div className="flex items-center justify-between px-4 py-2 bg-violet-50 dark:bg-violet-950/30 border-b border-violet-200 dark:border-violet-800">
+          <span className="text-xs text-violet-600 dark:text-violet-300">
+            ✨ Esta sesión aún no tiene análisis.
+          </span>
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
-            className="flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-300 hover:text-violet-900 dark:hover:text-violet-100 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors"
           >
             {analyzing ? (
               <><Loader2 className="w-3 h-3 animate-spin" />Analizando...</>
             ) : (
-              <>✨ Analizar esta sesión</>
+              <>Analizar ahora</>
             )}
           </button>
         </div>

@@ -118,7 +118,7 @@ export default function PatientDetailPage() {
   const [analyzingMonth, setAnalyzingMonth] = useState<string | null>(null) // "year-month"
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
     const now = new Date()
-    return new Set([`y-${now.getFullYear()}`, `m-${now.getFullYear()}-${now.getMonth()}`])
+    return new Set([`m-${now.getFullYear()}-${now.getMonth()}`])
   })
 
   useEffect(() => {
@@ -242,7 +242,7 @@ export default function PatientDetailPage() {
     setAnalyzingMonth(key)
     try {
       await apiFetch<{ analyzed: number }>(
-        `/api/patients/${id}/analyze-month`,
+        `/api/patients/${id}/process-month`,
         token,
         { method: "POST", body: JSON.stringify({ year, month }) }
       )
@@ -445,20 +445,6 @@ export default function PatientDetailPage() {
         )}
       </section>
 
-      {/* ── Pendientes de análisis ───────────────────────────────────────────── */}
-      {(() => {
-        const pendingCount = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
-        if (pendingCount === 0) return null
-        return (
-          <div className="mb-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex items-center gap-2">
-            <span className="text-amber-500 flex-shrink-0">✨</span>
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              <span className="font-semibold">{pendingCount} {pendingCount === 1 ? "sesión pendiente" : "sesiones pendientes"} de análisis.</span>
-              {" "}Usá <span className="font-medium">✨ Analizar mes</span> en cada período o el botón dentro de cada sesión.
-            </p>
-          </div>
-        )
-      })()}
 
       {/* Sessions */}
       <section className="mb-8">
@@ -527,7 +513,7 @@ export default function PatientDetailPage() {
             ))}
           </div>
         ) : (
-          // Accordion grouped by year > month
+          // Flat accordion: each Month-Year group at top level
           (() => {
             function toggleKey(key: string) {
               setExpandedKeys((prev) => {
@@ -536,99 +522,91 @@ export default function PatientDetailPage() {
                 return next
               })
             }
-            // Build year > month map
-            const yearMap = new Map<number, Map<number, Session[]>>()
+
+            // Build flat month-year groups
+            type MonthGroup = { year: number; month: number; sessions: Session[] }
+            const groupMap = new Map<string, MonthGroup>()
             for (const s of sessions) {
               const d = new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at)
               const y = d.getFullYear(), m = d.getMonth()
-              if (!yearMap.has(y)) yearMap.set(y, new Map())
-              const ym = yearMap.get(y)!
-              if (!ym.has(m)) ym.set(m, [])
-              ym.get(m)!.push(s)
+              const key = `${y}-${m}`
+              if (!groupMap.has(key)) groupMap.set(key, { year: y, month: m, sessions: [] })
+              groupMap.get(key)!.sessions.push(s)
             }
-            // Sort sessions within each month descending
-            for (const ym of yearMap.values())
-              for (const ss of ym.values())
-                ss.sort((a, b) => new Date(b.session_date ? b.session_date + "T12:00:00" : b.created_at).getTime() - new Date(a.session_date ? a.session_date + "T12:00:00" : a.created_at).getTime())
+            const groups = Array.from(groupMap.values())
+              .sort((a, b) => b.year !== a.year ? b.year - a.year : b.month - a.month)
+            // Sort sessions within each group descending
+            for (const g of groups)
+              g.sessions.sort((a, b) =>
+                new Date(b.session_date ? b.session_date + "T12:00:00" : b.created_at).getTime() -
+                new Date(a.session_date ? a.session_date + "T12:00:00" : a.created_at).getTime()
+              )
 
             return (
-              <div className="space-y-1">
-                {Array.from(yearMap.entries())
-                  .sort(([a], [b]) => b - a)
-                  .map(([year, monthMap]) => {
-                    const yearKey = `y-${year}`
-                    const yearExpanded = expandedKeys.has(yearKey)
-                    const yearCount = Array.from(monthMap.values()).reduce((n, ss) => n + ss.length, 0)
-                    return (
-                      <div key={year}>
+              <div className="space-y-2">
+                {groups.map(({ year, month, sessions: ss }) => {
+                  const monthKey = `m-${year}-${month}`
+                  const isOpen = expandedKeys.has(monthKey)
+                  const monthName = new Date(year, month, 1)
+                    .toLocaleDateString("es-AR", { month: "long" })
+                  const pendingInMonth = ss.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
+                  const isAnalyzing = analyzingMonth === `${year}-${month}`
+                  const allAnalyzed = pendingInMonth === 0
+
+                  return (
+                    <div key={monthKey} className="rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
+                      {/* Month header row */}
+                      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-slate-800/60">
                         <button
-                          onClick={() => toggleKey(yearKey)}
-                          className="flex items-center gap-1.5 w-full text-left py-1.5 px-1 text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+                          onClick={() => toggleKey(monthKey)}
+                          className="flex items-center gap-2 flex-1 text-left"
                         >
-                          <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${yearExpanded ? "rotate-90" : ""}`} />
-                          {year} · {yearCount} {yearCount === 1 ? "sesión" : "sesiones"}
+                          <ChevronRight className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform flex-shrink-0 ${isOpen ? "rotate-90" : ""}`} />
+                          <span className="text-sm font-semibold text-gray-700 dark:text-slate-200 capitalize">
+                            {monthName} {year}
+                          </span>
+                          <span className="text-xs text-gray-400 dark:text-slate-500">
+                            · {ss.length} {ss.length === 1 ? "sesión" : "sesiones"}
+                          </span>
+                          {pendingInMonth > 0 && (
+                            <span className="text-xs text-violet-500 dark:text-violet-400">
+                              · {pendingInMonth} sin analizar
+                            </span>
+                          )}
                         </button>
-                        {yearExpanded && (
-                          <div className="ml-3 space-y-1 mt-0.5">
-                            {Array.from(monthMap.entries())
-                              .sort(([a], [b]) => b - a)
-                              .map(([month, ss]) => {
-                                const monthKey = `m-${year}-${month}`
-                                const monthExpanded = expandedKeys.has(monthKey)
-                                const monthName = new Date(year, month, 1)
-                                  .toLocaleDateString("es-AR", { month: "long" })
-                                const pendingInMonth = ss.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
-                                const monthAnalyzingKey = `${year}-${month}`
-                                const isAnalyzingThisMonth = analyzingMonth === monthAnalyzingKey
-                                return (
-                                  <div key={month}>
-                                    <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => toggleKey(monthKey)}
-                                      className="flex items-center gap-1.5 flex-1 text-left py-1 px-1 text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors capitalize"
-                                    >
-                                      <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${monthExpanded ? "rotate-90" : ""}`} />
-                                      {monthName} ({ss.length} {ss.length === 1 ? "sesión" : "sesiones"})
-                                      {pendingInMonth > 0 && (
-                                        <span className="ml-1 text-violet-500 dark:text-violet-400 font-normal normal-case tracking-normal">
-                                          · {pendingInMonth} sin analizar
-                                        </span>
-                                      )}
-                                    </button>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleAnalyzeMonth(year, month) }}
-                                      disabled={!!analyzingMonth || pendingInMonth === 0}
-                                      className="flex items-center gap-1 text-xs font-medium border rounded px-2 py-0.5 flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-default border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-                                      title={pendingInMonth > 0 ? `Analizar ${pendingInMonth} sesión${pendingInMonth > 1 ? "es" : ""} pendiente${pendingInMonth > 1 ? "s" : ""}` : "Todas las sesiones ya están analizadas"}
-                                    >
-                                      {isAnalyzingThisMonth ? (
-                                        <span className="animate-pulse">Analizando...</span>
-                                      ) : (
-                                        <>✨ Analizar mes</>
-                                      )}
-                                    </button>
-                                    </div>
-                                    {monthExpanded && (
-                                      <div className="space-y-2 mt-1.5 ml-2">
-                                        {ss.map((s) => (
-                                          <SessionCard
-                                            key={s.id}
-                                            session={s}
-                                            token={token!}
-                                            onUpdate={load}
-                                            onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
-                                          />
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                          </div>
-                        )}
+                        {/* Analizar mes button — always visible */}
+                        <button
+                          onClick={() => handleAnalyzeMonth(year, month)}
+                          disabled={!!analyzingMonth || allAnalyzed}
+                          className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
+                            allAnalyzed
+                              ? "border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-default"
+                              : isAnalyzing
+                              ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
+                              : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                          }`}
+                        >
+                          {isAnalyzing ? "Analizando..." : allAnalyzed ? "Mes analizado ✅" : "✨ Analizar mes"}
+                        </button>
                       </div>
-                    )
-                  })}
+
+                      {/* Sessions list */}
+                      {isOpen && (
+                        <div className="divide-y divide-gray-100 dark:divide-slate-800">
+                          {ss.map((s) => (
+                            <SessionCard
+                              key={s.id}
+                              session={s}
+                              token={token!}
+                              onUpdate={load}
+                              onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )
           })()
