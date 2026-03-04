@@ -110,7 +110,7 @@ function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
         <div>
           <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
           <p className="text-sm font-bold text-gray-900 dark:text-slate-100 leading-snug">
-            {value ?? <span className="text-gray-400 dark:text-slate-500 font-normal">Sin datos</span>}
+            {value ?? <span className="text-xs text-gray-400 dark:text-slate-500 font-normal italic">Pendiente de análisis</span>}
           </p>
         </div>
       </div>
@@ -144,7 +144,17 @@ export function PatientMetrics({
   const adherence = calcAdherence(sessions)
   const financials = calcFinancials(sessions)
 
-  if (sessions.length === 0 && !caseSummary) return null
+  if (sessions.length === 0) return null
+
+  // Parse caseSummary JSON safely (may be a CaseAnalysis or a _processing state)
+  const parsedCase = (() => {
+    if (!caseSummary) return null
+    try {
+      const obj = JSON.parse(caseSummary) as Record<string, unknown>
+      if (obj._processing) return null // mid-processing state, don't display
+      return typeof obj.summary === "string" ? obj as { summary: string } : null
+    } catch { return null }
+  })()
 
   const sentimientos = summaries.map(s => s.sentimiento_predominante ?? "").filter(Boolean)
   const pensamientos = summaries.map(s => s.pensamiento_predominante ?? "").filter(Boolean)
@@ -169,8 +179,8 @@ export function PatientMetrics({
         Métricas clínicas · {sessions.length} sesión{sessions.length !== 1 ? "es" : ""}
       </h2>
 
-      {/* Case summary */}
-      {caseSummary && (
+      {/* Case summary — only shows when properly analyzed (not _processing) */}
+      {parsedCase && (
         <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4">
           <TextScramble
             as="h3"
@@ -180,16 +190,14 @@ export function PatientMetrics({
           >
             Resumen clínico acumulado
           </TextScramble>
-          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{caseSummary}</p>
+          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{parsedCase.summary}</p>
         </div>
       )}
 
-      {/* 4 metric chips */}
-      {summaries.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {metrics.map((m) => <MetricCard key={m.label} {...m} />)}
-        </div>
-      )}
+      {/* 4 metric chips — always visible; show "Pendiente de análisis" when no data */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {metrics.map((m) => <MetricCard key={m.label} {...m} />)}
+      </div>
 
       {/* Monthly operational stats */}
       {sessions.length > 0 && (

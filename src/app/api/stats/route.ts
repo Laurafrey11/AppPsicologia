@@ -4,6 +4,8 @@ import { getPracticeStats } from "@/lib/repositories/session.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 
+export const dynamic = "force-dynamic"
+
 export async function GET(req: Request) {
   try {
     const user = await getAuthUser(req)

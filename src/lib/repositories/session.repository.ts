@@ -365,32 +365,42 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   const fourDaysAgo = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000)
   const twentyOneDaysAgo = new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000)
 
-  // All sessions for this psychologist
-  const { data: allSessions } = await supabaseAdmin
+  // All sessions for this psychologist — log error explicitly instead of silently swallowing
+  const { data: allSessions, error: sessionsError } = await supabaseAdmin
     .from("sessions")
     .select("id, patient_id, created_at, session_date, paid, fee, audio_duration")
     .eq("psychologist_id", psychologistId)
     .order("created_at", { ascending: true })
 
+  if (sessionsError) {
+    console.error("[getPracticeStats] sessions query failed:", sessionsError.message, { psychologistId })
+  }
   const sessions = allSessions ?? []
 
-  // Patient counts
-  const { count: activeCount } = await supabaseAdmin
+  // Patient counts — direct COUNT queries, no data transfer
+  const { count: activeCount, error: activeErr } = await supabaseAdmin
     .from("patients")
-    .select("*", { count: "exact", head: true })
+    .select("id", { count: "exact", head: true })
     .eq("psychologist_id", psychologistId)
     .eq("is_active", true)
 
-  const { count: inactiveCount } = await supabaseAdmin
+  const { count: inactiveCount, error: inactiveErr } = await supabaseAdmin
     .from("patients")
-    .select("*", { count: "exact", head: true })
+    .select("id", { count: "exact", head: true })
     .eq("psychologist_id", psychologistId)
     .eq("is_active", false)
 
-  // "This month" = sessions registered (created_at) this month.
-  // Using created_at ensures imported historical sessions appear in the month they were uploaded,
-  // regardless of their historical session_date.
-  const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
+  if (activeErr) console.error("[getPracticeStats] active patients query failed:", activeErr.message)
+  if (inactiveErr) console.error("[getPracticeStats] inactive patients query failed:", inactiveErr.message)
+
+  // "This month" = sessions whose effective date (session_date, else created_at) is in the current month.
+  // This catches both newly created sessions and imported historical sessions with session_date this month.
+  const thisMonthSessions = sessions.filter((s) => {
+    const d = s.session_date
+      ? new Date(s.session_date + "T12:00:00")
+      : new Date(s.created_at)
+    return d >= startOfMonth
+  })
   const income_this_month = thisMonthSessions
     .filter((s) => s.paid)
     .reduce((sum, s) => sum + (s.fee ?? 0), 0)
