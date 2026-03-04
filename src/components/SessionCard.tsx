@@ -100,6 +100,10 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // AI analyze state (for sessions imported without summary)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null)
+
   // Local display overrides (updated on save without waiting for reload)
   const [localText, setLocalText] = useState(session.raw_text)
   const [localDate, setLocalDate] = useState(session.session_date)
@@ -264,6 +268,27 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
     } catch { /* silently fail */ }
   }
 
+  async function handleAnalyze() {
+    setAnalyzing(true)
+    setAnalyzeError(null)
+    try {
+      const res = await fetch(`/api/sessions/${session.id}/analyze`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setAnalyzeError(data.error ?? "Error al analizar")
+        return
+      }
+      onUpdate?.()
+    } catch {
+      setAnalyzeError("Error al analizar")
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
   // Use local overrides so edits are reflected immediately
   const displayDate = localDate
     ? new Date(localDate + "T12:00:00").toLocaleDateString("es-AR", {
@@ -307,6 +332,11 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                 </span>
               ))}
             </div>
+          )}
+          {!session.ai_summary && session.raw_text?.trim() && (
+            <span className="text-xs text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full w-fit">
+              Sin analizar
+            </span>
           )}
           {localTags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
@@ -530,10 +560,23 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
             </div>
           )}
 
-          {!summary && !session.session_notes && (
-            <p className="text-xs text-gray-400 dark:text-slate-500 italic">
-              Sesión importada. Disponible para análisis de Interconsulta.
-            </p>
+          {!summary && session.raw_text?.trim() && (
+            <div className="flex flex-col gap-2">
+              {analyzeError && (
+                <p className="text-xs text-red-500">{analyzeError}</p>
+              )}
+              <button
+                onClick={handleAnalyze}
+                disabled={analyzing}
+                className="self-start flex items-center gap-1.5 text-xs font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 hover:bg-violet-100 dark:hover:bg-violet-900/30 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {analyzing ? (
+                  <><Loader2 className="w-3 h-3 animate-spin" />Analizando...</>
+                ) : (
+                  <>✨ Analizar con IA</>
+                )}
+              </button>
+            </div>
           )}
 
           {summary && (

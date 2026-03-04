@@ -115,10 +115,7 @@ export default function PatientDetailPage() {
   const [savingReason, setSavingReason] = useState(false)
   const [consultationLimitReached, setConsultationLimitReached] = useState(false)
   const [markingAllPaid, setMarkingAllPaid] = useState(false)
-  const [fillProgress, setFillProgress] = useState<{ current: number; total: number } | null>(null)
-  const [fillLabel, setFillLabel] = useState<string | null>(null)
-  const [fillError, setFillError] = useState<string | null>(null)
-  const [fillDone, setFillDone] = useState(false)
+  const [analyzingMonth, setAnalyzingMonth] = useState<string | null>(null) // "year-month"
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
     const now = new Date()
     return new Set([`y-${now.getFullYear()}`, `m-${now.getFullYear()}-${now.getMonth()}`])
@@ -239,39 +236,22 @@ export default function PatientDetailPage() {
     }
   }
 
-  async function handleFillSummaries() {
+  async function handleAnalyzeMonth(year: number, month: number) {
     if (!token) return
-    setFillError(null)
-    setFillDone(false)
-    setFillLabel("Iniciando análisis...")
-    setFillProgress({ current: 0, total: sessions.length })
+    const key = `${year}-${month}`
+    setAnalyzingMonth(key)
     try {
-      let isFirst = true
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const data = await apiFetch<
-          | { done: false; processed: number; total: number; label: string }
-          | { done: true; analysis: unknown; sessionCount: number }
-        >(
-          `/api/patients/${id}/process-history`,
-          token,
-          { method: "POST", body: JSON.stringify(isFirst ? { reset: true } : {}) }
-        )
-        isFirst = false
-        if (data.done) {
-          setFillDone(true)
-          setFillLabel(null)
-          await load()
-          break
-        } else {
-          setFillLabel(data.label)
-          setFillProgress({ current: data.processed, total: data.total })
-        }
-      }
-    } catch (err: unknown) {
-      setFillError((err as Error).message)
+      await apiFetch<{ analyzed: number }>(
+        `/api/patients/${id}/analyze-month`,
+        token,
+        { method: "POST", body: JSON.stringify({ year, month }) }
+      )
+      await load()
+    } catch {
+      // silently fail — load() will still run
+      await load()
     } finally {
-      setFillProgress(null)
+      setAnalyzingMonth(null)
     }
   }
 
@@ -465,43 +445,20 @@ export default function PatientDetailPage() {
         )}
       </section>
 
-      {/* ── Procesar historial con IA ───────────────────────────────────────── */}
-      {sessions.length > 0 && (
-        <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                Análisis global del caso
-              </h2>
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-                {fillDone
-                  ? "Análisis completado — gráfico de evolución actualizado"
-                  : fillLabel
-                  ? fillLabel
-                  : patient.case_summary
-                  ? "Análisis previo disponible — podés re-analizar"
-                  : "Genera el análisis para activar el gráfico de evolución clínica"}
-              </p>
-            </div>
-            {!fillProgress && (
-              <button
-                onClick={handleFillSummaries}
-                className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
-              >
-                {patient.case_summary ? "Re-analizar" : "Procesar historial con IA"}
-              </button>
-            )}
-            {fillProgress && (
-              <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
-                {fillLabel ?? "Analizando..."}
-              </span>
-            )}
+      {/* ── Pendientes de análisis ───────────────────────────────────────────── */}
+      {(() => {
+        const pendingCount = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
+        if (pendingCount === 0) return null
+        return (
+          <div className="mb-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex items-center gap-2">
+            <span className="text-amber-500 flex-shrink-0">✨</span>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <span className="font-semibold">{pendingCount} {pendingCount === 1 ? "sesión pendiente" : "sesiones pendientes"} de análisis.</span>
+              {" "}Usá <span className="font-medium">✨ Analizar mes</span> en cada período o el botón dentro de cada sesión.
+            </p>
           </div>
-          {fillError && (
-            <p className="text-xs text-red-500 mt-2">{fillError}</p>
-          )}
-        </section>
-      )}
+        )
+      })()}
 
       {/* Sessions */}
       <section className="mb-8">
@@ -620,15 +577,34 @@ export default function PatientDetailPage() {
                                 const monthExpanded = expandedKeys.has(monthKey)
                                 const monthName = new Date(year, month, 1)
                                   .toLocaleDateString("es-AR", { month: "long" })
+                                const pendingInMonth = ss.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
+                                const monthAnalyzingKey = `${year}-${month}`
+                                const isAnalyzingThisMonth = analyzingMonth === monthAnalyzingKey
                                 return (
                                   <div key={month}>
+                                    <div className="flex items-center gap-1">
                                     <button
                                       onClick={() => toggleKey(monthKey)}
-                                      className="flex items-center gap-1.5 w-full text-left py-1 px-1 text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors capitalize"
+                                      className="flex items-center gap-1.5 flex-1 text-left py-1 px-1 text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors capitalize"
                                     >
                                       <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${monthExpanded ? "rotate-90" : ""}`} />
                                       {monthName} ({ss.length} {ss.length === 1 ? "sesión" : "sesiones"})
                                     </button>
+                                    {pendingInMonth > 0 && (
+                                      <button
+                                        onClick={() => handleAnalyzeMonth(year, month)}
+                                        disabled={!!analyzingMonth}
+                                        className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 disabled:opacity-50 transition-colors flex-shrink-0 px-1 py-0.5"
+                                        title={`Analizar ${pendingInMonth} sesión${pendingInMonth > 1 ? "es" : ""} pendiente${pendingInMonth > 1 ? "s" : ""}`}
+                                      >
+                                        {isAnalyzingThisMonth ? (
+                                          <span className="animate-pulse">Analizando...</span>
+                                        ) : (
+                                          <>✨ Analizar mes</>
+                                        )}
+                                      </button>
+                                    )}
+                                    </div>
                                     {monthExpanded && (
                                       <div className="space-y-2 mt-1.5 ml-2">
                                         {ss.map((s) => (
