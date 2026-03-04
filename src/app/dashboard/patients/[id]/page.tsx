@@ -114,6 +114,7 @@ export default function PatientDetailPage() {
   const [reasonDraft, setReasonDraft] = useState("")
   const [savingReason, setSavingReason] = useState(false)
   const [consultationLimitReached, setConsultationLimitReached] = useState(false)
+  const [markingAllPaid, setMarkingAllPaid] = useState(false)
   const [caseAnalysis, setCaseAnalysis] = useState<{
     summary: string; has_risk: boolean; tags: string[]; clinical_advice: string
   } | null>(null)
@@ -249,6 +250,19 @@ export default function PatientDetailPage() {
       setProcessHistoryError((err as Error).message)
     } finally {
       setProcessingHistory(false)
+    }
+  }
+
+  async function handleMarkAllPaid() {
+    if (!token) return
+    setMarkingAllPaid(true)
+    try {
+      await apiFetch<{ updated: number }>(`/api/patients/${id}/mark-all-paid`, token, { method: "PATCH" })
+      await load()
+    } catch (err: unknown) {
+      setError((err as Error).message)
+    } finally {
+      setMarkingAllPaid(false)
     }
   }
 
@@ -506,18 +520,29 @@ export default function PatientDetailPage() {
           <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
             Sesiones ({sessions.length})
           </h2>
-          {patient.historical_import_done ? (
-            <span className="text-xs text-gray-400 dark:text-slate-500 italic">
-              Historial ya importado
-            </span>
-          ) : (
-            <button
-              onClick={() => setShowImport(true)}
-              className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
-            >
-              Importar históricas
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {sessions.some((s) => !s.paid) && (
+              <button
+                onClick={handleMarkAllPaid}
+                disabled={markingAllPaid}
+                className="text-xs text-emerald-600 dark:text-emerald-400 font-medium hover:underline disabled:opacity-50"
+              >
+                {markingAllPaid ? "Marcando..." : "Marcar todas como pagas"}
+              </button>
+            )}
+            {patient.historical_import_done ? (
+              <span className="text-xs text-gray-400 dark:text-slate-500 italic">
+                Historial ya importado
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowImport(true)}
+                className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:underline"
+              >
+                Importar históricas
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search */}

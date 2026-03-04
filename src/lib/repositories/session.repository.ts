@@ -283,6 +283,21 @@ export async function updateSessionPaid(
   return data
 }
 
+export async function markAllSessionsPaid(
+  patientId: string,
+  psychologistId: string
+): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .update({ paid: true, paid_at: new Date().toISOString() })
+    .eq("patient_id", patientId)
+    .eq("psychologist_id", psychologistId)
+    .eq("paid", false)
+    .select("id")
+  if (error) throw new Error(error.message)
+  return (data ?? []).length
+}
+
 export type PracticeStats = {
   active_patients: number
   inactive_patients: number
