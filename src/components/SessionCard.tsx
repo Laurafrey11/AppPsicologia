@@ -424,9 +424,9 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                 ))}
               </div>
 
-              {/* Análisis IA */}
+              {/* Análisis de sesión */}
               <div className="space-y-2 pt-1">
-                <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Análisis IA</p>
+                <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Análisis de sesión</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(
                     [
@@ -544,7 +544,7 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                 duration={0.6}
                 speed={0.03}
               >
-                Análisis IA
+                Análisis de sesión
               </TextScramble>
 
               <div className="grid grid-cols-2 gap-2">

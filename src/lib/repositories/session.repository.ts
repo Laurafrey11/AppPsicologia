@@ -387,13 +387,10 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
     .eq("psychologist_id", psychologistId)
     .eq("is_active", false)
 
-  // This month stats — prefer session_date when set (historical imports use it)
-  const thisMonthSessions = sessions.filter((s) => {
-    const d = s.session_date
-      ? new Date(s.session_date + "T12:00:00")
-      : new Date(s.created_at)
-    return d >= startOfMonth
-  })
+  // "This month" = sessions registered (created_at) this month.
+  // Using created_at ensures imported historical sessions appear in the month they were uploaded,
+  // regardless of their historical session_date.
+  const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
   const income_this_month = thisMonthSessions
     .filter((s) => s.paid)
     .reduce((sum, s) => sum + (s.fee ?? 0), 0)

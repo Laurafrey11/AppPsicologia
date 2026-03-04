@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
-import { findPatientById } from "@/lib/repositories/patient.repository"
+import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
 import { findSessionsByPatient } from "@/lib/repositories/session.repository"
 import { generateCaseAnalysis } from "@/lib/services/openai.service"
 import { BaseError } from "@/lib/errors/BaseError"
@@ -56,11 +56,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const analysis = await generateCaseAnalysis(sessions)
 
+    // Persist analysis in patients.case_summary so the evolution chart can read scores
+    await updatePatient(patientId, user.id, { case_summary: JSON.stringify(analysis) }).catch((e) =>
+      logger.error("process-history: failed to persist case_summary", { error: (e as Error).message })
+    )
+
     logger.info("Case analysis generated (process-history)", {
       patientId,
       psychologistId: user.id,
       sessionCount: sessions.length,
       hasRisk: analysis.has_risk,
+      scoresCount: analysis.scores?.length ?? 0,
     })
 
     return NextResponse.json({ analysis, sessionCount: sessions.length })

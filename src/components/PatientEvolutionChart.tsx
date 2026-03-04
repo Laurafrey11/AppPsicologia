@@ -13,6 +13,12 @@ interface Session {
   session_date: string | null
 }
 
+interface GlobalScore {
+  fecha: string
+  animo: number
+  ansiedad: number
+}
+
 // Map sentimiento_predominante → ánimo score (1–10, higher = better mood)
 const ANIMO_MAP: Record<string, number> = {
   Alegría: 9,
@@ -96,8 +102,23 @@ const SERIES = [
   { key: "adherencia" as const, label: "Adherencia", color: "#10b981" },  // emerald
 ]
 
-export function PatientEvolutionChart({ sessions }: { sessions: Session[] }) {
+export function PatientEvolutionChart({
+  sessions,
+  caseSummary,
+}: {
+  sessions: Session[]
+  caseSummary?: string | null
+}) {
   const [hovered, setHovered] = useState<{ idx: number; x: number; y: number } | null>(null)
+
+  // Try to read global scores from case_summary (set by process-history endpoint)
+  const globalScores = useMemo((): GlobalScore[] | null => {
+    if (!caseSummary) return null
+    try {
+      const parsed = JSON.parse(caseSummary) as { scores?: GlobalScore[] }
+      return Array.isArray(parsed.scores) && parsed.scores.length > 0 ? parsed.scores : null
+    } catch { return null }
+  }, [caseSummary])
 
   const points = useMemo((): DataPoint[] => {
     const sorted = [...sessions].sort((a, b) => {
@@ -106,6 +127,26 @@ export function PatientEvolutionChart({ sessions }: { sessions: Session[] }) {
       return da.getTime() - db.getTime()
     })
 
+    // If global scores available, use them (matched by date or by index)
+    if (globalScores && globalScores.length >= 2) {
+      const sortedScores = [...globalScores].sort((a, b) => a.fecha.localeCompare(b.fecha))
+      return sortedScores.map((gs, i) => {
+        const date = new Date(gs.fecha + "T12:00:00")
+        let daysSincePrev: number | null = null
+        if (i > 0) {
+          const prevDate = new Date(sortedScores[i - 1].fecha + "T12:00:00")
+          daysSincePrev = Math.round((date.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24))
+        }
+        return {
+          label: date.toLocaleDateString("es-AR", { day: "numeric", month: "short" }),
+          animo: gs.animo,
+          ansiedad: gs.ansiedad,
+          adherencia: adherenciaScore(daysSincePrev),
+        }
+      })
+    }
+
+    // Fallback: read from individual session ai_summary
     return sorted.map((s, i) => {
       const summary = parseAiSummary(s.ai_summary)
       const sent = summary?.sentimiento_predominante ?? ""
@@ -125,7 +166,7 @@ export function PatientEvolutionChart({ sessions }: { sessions: Session[] }) {
         adherencia: adherenciaScore(daysSincePrev),
       }
     })
-  }, [sessions])
+  }, [sessions, globalScores])
 
   // Only render with at least 2 sessions
   if (points.length < 2) return null

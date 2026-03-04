@@ -238,19 +238,15 @@ export default function PatientDetailPage() {
     if (!token) return
     setFillError(null)
     setFillDone(false)
-    const pending = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
-    setFillProgress({ current: 0, total: pending })
-    let remaining = pending
+    const total = sessions.filter((s) => s.raw_text?.trim()).length
+    setFillProgress({ current: 0, total })
     try {
-      while (remaining > 0) {
-        const data = await apiFetch<{ processed: number; remaining: number }>(
-          `/api/patients/${id}/fill-summaries`,
-          token,
-          { method: "POST" }
-        )
-        remaining = data.remaining
-        setFillProgress((p) => p ? { ...p, current: p.total - remaining } : null)
-      }
+      // Global analysis: reads all sessions, generates scores per session, saves to case_summary
+      await apiFetch<{ analysis: unknown; sessionCount: number }>(
+        `/api/patients/${id}/process-history`,
+        token,
+        { method: "POST" }
+      )
       setFillDone(true)
       await load()
     } catch (err: unknown) {
@@ -348,7 +344,7 @@ export default function PatientDetailPage() {
       <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} />
 
       {/* Evolution Chart */}
-      <PatientEvolutionChart sessions={sessions} />
+      <PatientEvolutionChart sessions={sessions} caseSummary={patient.case_summary} />
 
       {/* Supervision */}
       {sessions.length >= 5 && (
@@ -451,44 +447,40 @@ export default function PatientDetailPage() {
       </section>
 
       {/* ── Procesar historial con IA ───────────────────────────────────────── */}
-      {(() => {
-        const pending = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
-        if (pending === 0 && !fillDone) return null
-        return (
-          <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                  Análisis pendiente
-                </h2>
-                <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-                  {fillDone
-                    ? "Todas las sesiones analizadas — gráficos actualizados"
-                    : fillProgress
-                    ? `Procesando ${fillProgress.current} de ${fillProgress.total} sesiones...`
-                    : `${pending} sesión${pending !== 1 ? "es" : ""} importada${pending !== 1 ? "s" : ""} sin análisis de IA`}
-                </p>
-              </div>
-              {!fillProgress && !fillDone && (
-                <button
-                  onClick={handleFillSummaries}
-                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  Procesar historial con IA
-                </button>
-              )}
-              {fillProgress && (
-                <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
-                  {fillProgress.current}/{fillProgress.total}
-                </span>
-              )}
+      {sessions.length > 0 && (
+        <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                Análisis global del caso
+              </h2>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+                {fillDone
+                  ? "Análisis completado — gráfico de evolución actualizado"
+                  : fillProgress
+                  ? `Analizando ${sessions.length} sesiones...`
+                  : patient.case_summary
+                  ? "Análisis previo disponible — podés re-analizar"
+                  : "Genera el análisis para activar el gráfico de evolución clínica"}
+              </p>
             </div>
-            {fillError && (
-              <p className="text-xs text-red-500 mt-2">{fillError}</p>
+            {!fillProgress && (
+              <button
+                onClick={handleFillSummaries}
+                className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                {patient.case_summary ? "Re-analizar" : "Procesar historial con IA"}
+              </button>
             )}
-          </section>
-        )
-      })()}
+            {fillProgress && (
+              <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">Analizando...</span>
+            )}
+          </div>
+          {fillError && (
+            <p className="text-xs text-red-500 mt-2">{fillError}</p>
+          )}
+        </section>
+      )}
 
       {/* Sessions */}
       <section className="mb-8">

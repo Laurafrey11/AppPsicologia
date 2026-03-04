@@ -331,6 +331,7 @@ export type CaseAnalysis = {
   has_risk: boolean
   tags: string[]
   clinical_advice: string
+  scores: Array<{ fecha: string; animo: number; ansiedad: number }>
 }
 
 /**
@@ -370,8 +371,17 @@ Respondé ÚNICAMENTE con JSON válido, sin texto adicional:
   "summary": "Dos párrafos: evolución clínica y temas recurrentes",
   "has_risk": false,
   "tags": ["Tag1", "Tag2"],
-  "clinical_advice": "Un párrafo de sugerencia para el terapeuta desde perspectiva de colega"
-}`,
+  "clinical_advice": "Un párrafo de sugerencia para el terapeuta desde perspectiva de colega",
+  "scores": [
+    { "fecha": "YYYY-MM-DD", "animo": 7, "ansiedad": 4 }
+  ]
+}
+
+Regla scores: Para CADA sesión incluida en el input, generá un objeto con:
+- "fecha": la fecha de esa sesión (igual a la que viene en el input)
+- "animo": número del 1 al 10 (1 = ánimo muy bajo, 10 = ánimo muy alto) basado en el contenido clínico de esa sesión
+- "ansiedad": número del 1 al 10 (1 = sin ansiedad, 10 = ansiedad extrema) basado en el contenido de esa sesión
+El array "scores" debe tener exactamente un elemento por cada sesión del input, en el mismo orden.`,
       },
       {
         role: "user",
