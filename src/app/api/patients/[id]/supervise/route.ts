@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
 import { findPatientById } from "@/lib/repositories/patient.repository"
-import { findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
-import { checkAndAddCost, AI_COSTS } from "@/lib/repositories/limits.repository"
-import { generateSupervisionReport } from "@/lib/services/openai.service"
+import { findSessionsByPatient } from "@/lib/repositories/session.repository"
+import { getOrCreateMonthUsage, incrementAiAssistCount } from "@/lib/repositories/limits.repository"
+import { generateInterConsultaReport } from "@/lib/services/openai.service"
 import type { AiSummary } from "@/lib/repositories/session.repository"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
@@ -13,10 +13,13 @@ export const maxDuration = 10
 /**
  * POST /api/patients/[id]/supervise
  *
- * Generates a clinical supervision report for a patient using all available
- * AI session summaries. Designed to be triggered every 5 sessions from the UI.
+ * Generates an interconsulta clínica for a patient.
+ * Works with sessions that may or may not have individual AI summaries —
+ * uses raw_text directly when no summary is available.
  *
- * Cost: ~1 CASE_SUMMARY token (reuses same estimate).
+ * Monetization: limited to 1 Interconsulta per psychologist per month
+ * via the ai_assist_count field in usage_tracking.
+ *
  * Returns: { report: string, sessionCount: number }
  */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -29,39 +32,50 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Paciente no encontrado" }, { status: 404 })
     }
 
-    // Fetch all sessions with AI summaries
-    const rows = await findSessionSummariesByPatient(patientId, user.id)
-    const summaries = rows
-      .map((r) => {
-        if (!r.ai_summary) return null
-        try { return JSON.parse(r.ai_summary) as AiSummary } catch { return null }
-      })
-      .filter((s): s is AiSummary => s !== null)
-
-    if (summaries.length === 0) {
+    // ── Monetization: 1 Interconsulta IA per month ────────────────────────────
+    const month = new Date().toISOString().slice(0, 7)
+    const usage = await getOrCreateMonthUsage(user.id, month)
+    if (usage.ai_assist_count >= 1) {
       return NextResponse.json(
-        { error: "No hay análisis IA disponibles para generar el informe. Las sesiones necesitan resumen de IA." },
-        { status: 400 }
-      )
-    }
-
-    // Check + charge cost before calling OpenAI
-    const cost = AI_COSTS.CASE_SUMMARY
-    const allowed = await checkAndAddCost(user.id, new Date().toISOString().slice(0, 7), cost)
-    if (!allowed) {
-      return NextResponse.json(
-        { error: "Límite mensual de gasto AI alcanzado.", code: "COST_CAP_EXCEEDED" },
+        {
+          error: "Límite mensual alcanzado. Contactar a soporte para Plan Pro.",
+          code: "CONSULTATION_LIMIT_REACHED",
+        },
         { status: 429 }
       )
     }
 
-    const report = await generateSupervisionReport(summaries)
+    // ── Fetch all sessions (with raw_text) ────────────────────────────────────
+    const rows = await findSessionsByPatient(patientId, user.id)
 
-    logger.info("Supervision report generated", {
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "No hay sesiones disponibles para generar la interconsulta." },
+        { status: 400 }
+      )
+    }
+
+    // Build context: use ai_summary when available, otherwise raw_text
+    const sessions = rows.map((s) => {
+      let parsedSummary: AiSummary | null = null
+      if (s.ai_summary) {
+        try { parsedSummary = JSON.parse(s.ai_summary) as AiSummary } catch { /* skip */ }
+      }
+      const date = s.session_date
+        ? s.session_date
+        : s.created_at.slice(0, 10)
+      return { date, raw_text: s.raw_text, ai_summary: parsedSummary }
+    })
+
+    const report = await generateInterConsultaReport(sessions)
+
+    // ── Increment counter after successful generation ─────────────────────────
+    await incrementAiAssistCount(user.id, month)
+
+    logger.info("Interconsulta report generated", {
       patientId,
       psychologistId: user.id,
       sessionCount: rows.length,
-      summaryCount: summaries.length,
     })
 
     return NextResponse.json({ report, sessionCount: rows.length })

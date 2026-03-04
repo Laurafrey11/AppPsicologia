@@ -22,6 +22,7 @@ interface LowFreqPatient {
 interface Stats {
   active_patients: number
   inactive_patients: number
+  total_sessions: number
   sessions_this_month: number
   income_this_month: number
   unpaid_overdue: OverdueSession[]
@@ -170,6 +171,12 @@ export default function EstadisticasPage() {
           </div>
           </div>
         </GlowCard>
+        <StatCard
+          label="Sesiones totales"
+          value={stats.total_sessions}
+          sub="Todas las sesiones registradas"
+          color="text-indigo-600 dark:text-indigo-400"
+        />
         <StatCard
           label="Pacientes activos"
           value={stats.active_patients}

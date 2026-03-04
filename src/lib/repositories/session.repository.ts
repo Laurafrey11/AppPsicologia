@@ -22,6 +22,7 @@ export type AiSummary = {
   tematica_predominante: string
   has_risk?: boolean
   tags?: string[]
+  resumen_narrativo?: string
 }
 
 export type Session = {
@@ -249,6 +250,7 @@ export async function updateSessionPaid(
 export type PracticeStats = {
   active_patients: number
   inactive_patients: number
+  total_sessions: number
   sessions_this_month: number
   income_this_month: number
   unpaid_overdue: Array<{ patient_id: string; session_date: string | null; created_at: string; fee: number | null }>
@@ -337,6 +339,7 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   return {
     active_patients: activeCount ?? 0,
     inactive_patients: inactiveCount ?? 0,
+    total_sessions: sessions.length,
     sessions_this_month: thisMonthSessions.length,
     income_this_month,
     unpaid_overdue,

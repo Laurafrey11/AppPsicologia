@@ -530,6 +530,12 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
             </div>
           )}
 
+          {!summary && !session.session_notes && (
+            <p className="text-xs text-gray-400 dark:text-slate-500 italic">
+              Sesión importada. Disponible para análisis de Interconsulta.
+            </p>
+          )}
+
           {summary && (
             <div className="bg-blue-50 dark:bg-blue-950/40 rounded-lg p-4 space-y-3">
               <TextScramble

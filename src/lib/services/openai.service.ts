@@ -55,11 +55,13 @@ Formato requerido:
   "mecanismo_defensa": "string — el mecanismo de defensa más evidente (ej: Proyección, Racionalización, Negación, Disociación, Sublimación, Represión, Desplazamiento, Intelectualización)",
   "tematica_predominante": "string — la temática central del caso (ej: Vínculos familiares, Autoestima, Duelo, Trauma, Identidad, Relaciones de pareja, Trabajo/rendimiento, Ansiedad social)",
   "has_risk": false,
-  "tags": ["máximo 3 etiquetas clínicas cortas"]
+  "tags": ["máximo 3 etiquetas clínicas cortas"],
+  "resumen_narrativo": "Exactamente dos párrafos separados por salto de línea. Párrafo 1: temas clave tratados en la sesión. Párrafo 2: evolución clínica observada o cierre de la sesión. Sin introducción, sin saludo, sin encabezado."
 }
 
 Regla has_risk: ponelo true ÚNICAMENTE si el texto menciona explícitamente ideas autolíticas, riesgo de vida inminente o violencia grave. En todos los demás casos debe ser false.
-Regla tags: generá entre 1 y 3 etiquetas descriptivas cortas (2-4 palabras cada una) que capturen los temas clave de la sesión.`,
+Regla tags: generá entre 1 y 3 etiquetas descriptivas cortas (2-4 palabras cada una) que capturen los temas clave de la sesión.
+Regla resumen_narrativo: EXACTAMENTE dos párrafos. El primero detalla los temas trabajados. El segundo describe la evolución o cierre. Sin introducciones ni saludos.`,
       },
       {
         role: "user",
@@ -266,6 +268,61 @@ Usá lenguaje profesional y clínico, como si hablaras con un colega de confianz
   })
   const content = response.choices[0]?.message?.content
   if (!content) throw new Error("OpenAI returned empty response for supervision report")
+  return content
+}
+
+/**
+ * Generates an interconsulta (second opinion) report from the last N sessions.
+ * Works with sessions that may or may not have individual AI summaries.
+ * For sessions without summaries, uses raw_text directly as clinical context.
+ */
+export async function generateInterConsultaReport(
+  sessions: Array<{
+    date: string
+    raw_text: string | null
+    ai_summary: AiSummary | null
+  }>
+): Promise<string> {
+  if (sessions.length === 0) return ""
+  const openai = getOpenAI()
+
+  const MAX_RAW_CHARS = 2000
+  const context = sessions
+    .map((s, i) => {
+      const label = `Sesión ${i + 1} (${s.date})`
+      if (s.ai_summary && s.ai_summary.main_topic) {
+        return `${label} [analizada]:\n${JSON.stringify(s.ai_summary)}`
+      }
+      const text = (s.raw_text ?? "").slice(0, MAX_RAW_CHARS)
+      return `${label} [notas]:\n${text}`
+    })
+    .join("\n\n")
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      {
+        role: "system",
+        content: `Sos un colega clínico de confianza que da una segunda opinión sobre el proceso terapéutico. Basándote en el historial de sesiones que se te provee (algunas ya analizadas, otras en texto libre), generá una interconsulta clínica estructurada desde un lugar de colegiatura, no de evaluación.
+
+La interconsulta debe incluir:
+1. Patrones recurrentes detectados (temáticas, emociones, mecanismos de defensa prevalentes)
+2. Evolución observada a lo largo del proceso
+3. Hipótesis clínicas consolidadas (como segunda opinión, no como diagnóstico)
+4. Puntos que podrían merecer atención o exploración adicional
+5. Sugerencias técnicas para las próximas sesiones, desde un tono colaborativo
+
+Usá lenguaje profesional y clínico, como si hablaras con un colega de confianza. No incluyas diagnósticos. Máximo 4 párrafos.`,
+      },
+      {
+        role: "user",
+        content: context.slice(0, 12000),
+      },
+    ],
+    temperature: 0.3,
+  })
+  const content = response.choices[0]?.message?.content
+  if (!content) throw new Error("OpenAI returned empty response for interconsulta report")
   return content
 }
 

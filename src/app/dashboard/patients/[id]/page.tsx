@@ -113,6 +113,7 @@ export default function PatientDetailPage() {
   const [editingReason, setEditingReason] = useState(false)
   const [reasonDraft, setReasonDraft] = useState("")
   const [savingReason, setSavingReason] = useState(false)
+  const [consultationLimitReached, setConsultationLimitReached] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -122,6 +123,10 @@ export default function PatientDetailPage() {
         fetch("/api/profile", { headers: { Authorization: `Bearer ${tok}` } })
           .then((r) => r.json())
           .then((d) => setSchedulingLink(d.scheduling_link ?? null))
+          .catch(() => {})
+        fetch("/api/supervision-status", { headers: { Authorization: `Bearer ${tok}` } })
+          .then((r) => r.json())
+          .then((d) => setConsultationLimitReached(d.used === true))
           .catch(() => {})
       }
     })
@@ -213,8 +218,13 @@ export default function PatientDetailPage() {
         { method: "POST" }
       )
       setSupervisionReport(data.report)
+      setConsultationLimitReached(true)
     } catch (err: unknown) {
-      setSupervisionError((err as Error).message)
+      const msg = (err as Error).message
+      if (msg.includes("CONSULTATION_LIMIT_REACHED") || msg.includes("Límite mensual")) {
+        setConsultationLimitReached(true)
+      }
+      setSupervisionError(msg)
     } finally {
       setGeneratingSupervision(false)
     }
@@ -311,13 +321,19 @@ export default function PatientDetailPage() {
                 </p>
               )}
             </div>
-            <button
-              onClick={handleGenerateSupervision}
-              disabled={generatingSupervision}
-              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-            >
-              {generatingSupervision ? "Consultando..." : supervisionReport ? "Nueva interconsulta" : "Consultar colega IA"}
-            </button>
+            {consultationLimitReached ? (
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                Límite mensual alcanzado · Plan Pro
+              </span>
+            ) : (
+              <button
+                onClick={handleGenerateSupervision}
+                disabled={generatingSupervision}
+                className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+              >
+                {generatingSupervision ? "Consultando..." : supervisionReport ? "Nueva interconsulta" : "Consultar colega IA"}
+              </button>
+            )}
           </div>
 
           {supervisionError && (

@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
 import { checkRateLimit, importLimiter } from "@/lib/rate-limit"
-import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
-import { checkAndAddCost, AI_COSTS, MONTHLY_COST_CAP } from "@/lib/repositories/limits.repository"
-import { logAuditEvent, AUDIT_ACTIONS } from "@/lib/repositories/audit.repository"
-import { findSessionSummariesByPatient } from "@/lib/repositories/session.repository"
-import { generateCaseSummary, extractSessionsFromText, generateBatchSessionSummaries } from "@/lib/services/openai.service"
+import { findPatientById } from "@/lib/repositories/patient.repository"
+import { extractSessionsFromText } from "@/lib/services/openai.service"
 import {
   getImportProgressCount,
   processImportInitial,
@@ -15,19 +12,12 @@ import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 import Papa from "papaparse"
 import * as XLSX from "xlsx"
-import type { AiSummary } from "@/lib/repositories/session.repository"
 
 // Vercel route segment config — caps execution to 10s on Hobby plan.
 export const maxDuration = 10
 
-// ── Serverless budget (Vercel Hobby: 10s timeout) ────────────────────────────
-// Worst-case OpenAI calls:
-//   TXT  → 1 (extract) + 1 (batch summaries ≤ 10) + 1 (case summary) = 3 calls
-//   CSV/XLSX → 0 + 1 (batch summaries ≤ 10) + 1 (case summary) = 2 calls
 const MAX_IMPORT_ROWS       = 100    // hard cap on rows per file
-const MAX_TXT_EXTRACT_CHARS = 15_000 // max chars for TXT import — calibrated to Vercel 10s timeout
-const SUMMARY_THRESHOLD     = 15     // if rows > this, only the last N get summaries
-const LAST_N_WITH_SUMMARY   = 5      // how many sessions receive an AI summary
+const MAX_TXT_EXTRACT_CHARS = 15_000 // max chars for TXT import
 
 /** Parses a date string in YYYY-MM-DD, DD/MM/YYYY, or DD-MM-YYYY format. Returns ISO date or null. */
 function parseDate(dateStr: string): string | null {
@@ -39,19 +29,17 @@ function parseDate(dateStr: string): string | null {
   const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (m1) {
     const iso = `${m1[3]}-${m1[2].padStart(2, "0")}-${m1[1].padStart(2, "0")}`
-    const d = new Date(iso + "T12:00:00")
-    return isNaN(d.getTime()) ? null : iso
+    return isNaN(new Date(iso + "T12:00:00").getTime()) ? null : iso
   }
   const m2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
   if (m2) {
     const iso = `${m2[3]}-${m2[2].padStart(2, "0")}-${m2[1].padStart(2, "0")}`
-    const d = new Date(iso + "T12:00:00")
-    return isNaN(d.getTime()) ? null : iso
+    return isNaN(new Date(iso + "T12:00:00").getTime()) ? null : iso
   }
   return null
 }
 
-/** POST /api/patients/[id]/import — import historical sessions from CSV/XLSX/TXT */
+/** POST /api/patients/[id]/import — import historical sessions from CSV/XLSX/TXT (no AI summaries) */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const user = await getAuthUser(req)
@@ -74,12 +62,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const ext = file.name.split(".").pop()?.toLowerCase() ?? ""
     let rows: Array<{ fecha: string; texto: string }> = []
 
-    // ── TXT path: guards + AI extraction ───────────────────────────────────────
-    // Gate 1 (historical_import_done) and Gate 2 (existing session count < 3)
-    // are enforced atomically inside process_import_initial, within the advisory
-    // lock. They raise HISTORICAL_IMPORT_ALREADY_DONE / TOO_MANY_EXISTING_SESSIONS.
+    // ── TXT path: AI extraction only (no summaries) ──────────────────────────
     if (ext === "txt") {
-      // Gate 2.5: don't start a new import while one is still in progress
       const pendingCount = await getImportProgressCount(user.id, patientId)
       if (pendingCount !== null && pendingCount > 0) {
         return NextResponse.json(
@@ -92,12 +76,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         )
       }
 
-      // Backend defense: reject if frontend bypass sent an oversized payload.
-      // (Frontend already trims to 22 000 chars before upload.)
       const text = await file.text()
       if (text.length > MAX_TXT_EXTRACT_CHARS) {
         return NextResponse.json(
-          { error: `El archivo supera el límite de ${(MAX_TXT_EXTRACT_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres. El frontend debería haberlo recortado automáticamente.` },
+          { error: `El archivo supera el límite de ${(MAX_TXT_EXTRACT_CHARS / 1000).toLocaleString("es-AR")} 000 caracteres.` },
           { status: 400 }
         )
       }
@@ -105,19 +87,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         return NextResponse.json({ error: "El archivo de texto está vacío" }, { status: 400 })
       }
 
-      // OpenAI call 1 of 3: extract sessions from free-form text.
-      // Monthly-limit enforcement happens in Postgres (process_import_initial).
-      // 8s hard timeout — returns a controlled 504 instead of letting Vercel kill the function.
-      console.time("[import] extract-sessions")
       try {
         rows = await extractSessionsFromText(text)
       } catch (err: unknown) {
-        console.timeEnd("[import] extract-sessions")
         const name = (err as Error).name
         if (name === "AbortError" || name === "TimeoutError") {
           return NextResponse.json(
             {
-              error: "La extracción de sesiones tardó demasiado. El archivo tiene demasiado texto — reducilo a menos de 10 000 caracteres e intentá de nuevo.",
+              error: "La extracción de sesiones tardó demasiado. Reducí el texto a menos de 10 000 caracteres e intentá de nuevo.",
               code: "EXTRACTION_TIMEOUT",
             },
             { status: 504 }
@@ -125,7 +102,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         }
         throw err
       }
-      console.timeEnd("[import] extract-sessions")
 
       if (rows.length === 0) {
         return NextResponse.json(
@@ -140,33 +116,24 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         )
       }
 
-    // ── CSV path ────────────────────────────────────────────────────────────────
+    // ── CSV path ─────────────────────────────────────────────────────────────
     } else if (ext === "csv") {
       const text = await file.text()
-      const result = Papa.parse<Record<string, string>>(text, {
-        header: true,
-        skipEmptyLines: true,
-      })
+      const result = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true })
       const fields = result.meta.fields ?? []
       if (!fields.includes("fecha") || !fields.includes("texto")) {
-        return NextResponse.json(
-          { error: "El CSV debe contener columnas: fecha, texto" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: "El CSV debe contener columnas: fecha, texto" }, { status: 400 })
       }
       rows = result.data.map((r) => ({ fecha: String(r.fecha ?? ""), texto: String(r.texto ?? "") }))
 
-    // ── XLSX path ───────────────────────────────────────────────────────────────
+    // ── XLSX path ─────────────────────────────────────────────────────────────
     } else if (ext === "xlsx" || ext === "xls") {
       const buffer = await file.arrayBuffer()
       const wb = XLSX.read(buffer)
       const ws = wb.Sheets[wb.SheetNames[0]]
       const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false })
       if (data.length === 0 || !("fecha" in data[0]) || !("texto" in data[0])) {
-        return NextResponse.json(
-          { error: "El XLSX debe contener columnas: fecha, texto" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: "El XLSX debe contener columnas: fecha, texto" }, { status: 400 })
       }
       rows = data.map((r) => ({ fecha: String(r.fecha ?? ""), texto: String(r.texto ?? "") }))
 
@@ -181,8 +148,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "El archivo no contiene filas de datos" }, { status: 400 })
     }
 
-    // ── CSV/XLSX: hard cap (monthly limit is enforced in Postgres) ───────────────
-    // No JS-level quota computation here: process_import_initial handles it all.
     if (ext !== "txt" && rows.length > MAX_IMPORT_ROWS) {
       return NextResponse.json(
         { error: `Máximo ${MAX_IMPORT_ROWS} sesiones por importación. El archivo tiene ${rows.length} filas.` },
@@ -190,81 +155,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       )
     }
 
-    // ── Pre-loop: batch-generate summaries (sequential, no parallel calls) ──────
-    //
-    // Strategy to stay within the 10s serverless budget:
-    //   • rows > SUMMARY_THRESHOLD (30): only the LAST_N_WITH_SUMMARY (10) sessions
-    //     get an AI summary — one batch call regardless of total row count.
-    //   • rows ≤ SUMMARY_THRESHOLD: all sessions get summaries — ceil(N/20) calls.
-
-    const summaryStartIndex = rows.length > SUMMARY_THRESHOLD
-      ? rows.length - LAST_N_WITH_SUMMARY
-      : 0
-
-    const batchSummaries: Array<AiSummary | null> = Array.from({ length: rows.length }, () => null)
-
-    // rowsToSummarize defined before the cost cap check that references it.
-    const rowsToSummarize = rows.slice(summaryStartIndex)
-
-    // ── Hard cost cap: check + charge before any OpenAI calls in this import ──
-    const importCost =
-      rowsToSummarize.length * AI_COSTS.BATCH_SUMMARY_PER_SESSION + AI_COSTS.CASE_SUMMARY
-    if (importCost > 0) {
-      const costAllowed = await checkAndAddCost(
-        user.id,
-        new Date().toISOString().slice(0, 7),
-        importCost
-      )
-      if (!costAllowed) {
-        logAuditEvent(user.id, AUDIT_ACTIONS.AI_COST_CAP_EXCEEDED, {
-          patientId,
-          feature: "import",
-          cost_delta: importCost,
-          cap: MONTHLY_COST_CAP,
-        })
-        return NextResponse.json(
-          {
-            error: `Límite mensual de gasto AI alcanzado ($${MONTHLY_COST_CAP} USD). Se renueva el 1° de cada mes.`,
-            code: "COST_CAP_EXCEEDED",
-          },
-          { status: 429 }
-        )
-      }
-    }
-
-    if (rowsToSummarize.length > 0) {
-      try {
-        // OpenAI call 2 of 3 (or 1 of 2 for CSV/XLSX)
-        console.time("[import] batch-summaries")
-        const generated = await generateBatchSessionSummaries(rowsToSummarize)
-        console.timeEnd("[import] batch-summaries")
-        for (let i = 0; i < generated.length; i++) {
-          batchSummaries[summaryStartIndex + i] = generated[i]
-        }
-      } catch (err: unknown) {
-        console.timeEnd("[import] batch-summaries")
-        logger.error("generateBatchSessionSummaries failed — sessions will import without summaries", {
-          patientId,
-          summaryStartIndex,
-          error: (err as Error).message,
-        })
-        // batchSummaries stays all-null — import continues without summaries
-      }
-    }
-
-    logger.info("Summary generation plan", {
-      patientId,
-      totalRows: rows.length,
-      rowsWithSummary: rowsToSummarize.length,
-      rowsSkipped: summaryStartIndex,
-    })
-
-    // ── Validate rows + build the sessions array for the DB function ─────────────
-    //
-    // Validation errors (invalid date, empty text) are collected here.
-    // All monthly-limit enforcement, partial batching, and idempotent inserts
-    // are handled atomically inside process_import_initial — no JS-level quota
-    // logic below this point.
+    // ── Validate rows + build sessions array (no AI summaries) ───────────────
     const allSessions: ImportProgressSession[] = []
     const errors: string[] = []
 
@@ -279,31 +170,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         errors.push(`Fila ${i + 2}: fecha inválida "${row.fecha}" (usá YYYY-MM-DD o DD/MM/YYYY)`)
         continue
       }
-      const summary = batchSummaries[i]
-      allSessions.push({
-        fecha:      parsedDate,
-        texto:      row.texto,
-        ai_summary: summary ? JSON.stringify(summary) : null,
-      })
+      allSessions.push({ fecha: parsedDate, texto: row.texto, ai_summary: null })
     }
 
-    // ── DB-enforced import: single atomic SQL transaction ────────────────────────
-    //
-    // process_import_initial handles everything internally:
-    //   Guard A: historical_import_done IS DISTINCT FROM true (within advisory lock)
-    //   Guard B: COUNT(sessions) < 3 all-time          (within advisory lock)
-    //   0. pg_advisory_xact_lock                       → serialises per patient
-    //   0b. FOR UPDATE on import_progress              → serialises concurrent initials
-    //   1.  FOR UPDATE on subscription_limits          → no TOCTOU
-    //   2.  COUNT sessions this month                  → accurate quota inside lock
-    //   3.  Split batch vs remaining                   → partial-import safe
-    //   4.  INSERT … ON CONFLICT DO NOTHING            → idempotent
-    //   5.  UPDATE usage_tracking                      → atomic counter
-    //   6.  UPSERT / DELETE import_progress            → no JS-level saveImportProgress
-    //   7.  UPDATE patients.historical_import_done     → atomic with sessions commit
-    //
-    // Returns { imported_count, remaining_count, can_continue }.
-    // Raises HISTORICAL_IMPORT_ALREADY_DONE or TOO_MANY_EXISTING_SESSIONS on guard failure.
+    // ── Atomic bulk insert ────────────────────────────────────────────────────
     let importResult: Awaited<ReturnType<typeof processImportInitial>>
     try {
       importResult = await processImportInitial(user.id, patientId, allSessions, file.name, ext)
@@ -330,43 +200,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       logger.error("processImportInitial returned null unexpectedly", { patientId })
       return NextResponse.json({ error: "Error interno al procesar la importación. Intentá de nuevo." }, { status: 500 })
     }
-    const imported       = importResult.imported_count
-    const remainingCount = importResult.remaining_count
-    const canContinue    = importResult.can_continue
 
-    if (canContinue) {
-      logger.info("Partial import — remaining sessions queued atomically in DB", { patientId, imported, remainingCount })
-    }
+    logger.info("Sessions imported (no AI summaries)", {
+      patientId,
+      imported: importResult.imported_count,
+      remaining: importResult.remaining_count,
+      parseErrors: errors.length,
+    })
 
-    // ── Post-insert: case summary + historical flag ──────────────────────────────
-    if (imported > 0) {
-      try {
-        const allSummaries = await findSessionSummariesByPatient(patientId, user.id)
-        const parsedSummaries = allSummaries
-          .map((s) => {
-            if (!s.ai_summary) return null
-            try { return JSON.parse(s.ai_summary) as AiSummary } catch { return null }
-          })
-          .filter((s): s is AiSummary => s !== null)
-        if (parsedSummaries.length > 0) {
-          // OpenAI call 3 of 3 (or 2 of 2 for CSV/XLSX)
-          console.time("[import] case-summary")
-          const caseSummary = await generateCaseSummary(parsedSummaries)
-          console.timeEnd("[import] case-summary")
-          await updatePatient(patientId, user.id, { case_summary: caseSummary })
-        }
-      } catch (err) {
-        logger.error("Failed to update case_summary after import", {
-          patientId,
-          error: (err as Error).message,
-        })
-      }
-
-      // historical_import_done is set atomically inside process_import_initial (step 7).
-    }
-
-    logger.info("Sessions imported", { patientId, imported, errors: errors.length, remainingCount })
-    return NextResponse.json({ imported, errors, remainingCount, canContinue })
+    return NextResponse.json({
+      imported: importResult.imported_count,
+      errors,
+      remainingCount: importResult.remaining_count,
+      canContinue: importResult.can_continue,
+    })
   } catch (error: unknown) {
     const err = error as Error
     logger.error("POST /api/patients/[id]/import failed", { error: err.message })
