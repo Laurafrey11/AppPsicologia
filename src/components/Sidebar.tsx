@@ -79,7 +79,6 @@ export function Sidebar() {
       <nav className="px-2 pb-1 border-b border-gray-100 dark:border-slate-800">
         {[
           { href: "/dashboard/estadisticas", label: "Dashboard", icon: "📊" },
-          { href: "/dashboard/supervision", label: "Interconsulta IA", icon: "🧠" },
           { href: "/dashboard/perfil", label: "Perfil", icon: "⚙️" },
         ].map(({ href, label, icon }) => {
           const active = pathname === href

@@ -39,13 +39,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       )
     }
 
-    // Build input: prefer session_date as the label; fall back to created_at date
-    const sessions = rows
+    // Sort chronologically ascending so the AI sees the evolution correctly
+    const sorted = [...rows].sort((a, b) =>
+      (a.session_date ?? a.created_at.slice(0, 10)).localeCompare(b.session_date ?? b.created_at.slice(0, 10))
+    )
+
+    // Limit to 40 most recent sessions with text to avoid OpenAI timeout (Vercel 10s)
+    const MAX_SESSIONS = 40
+    const MAX_CHARS = 400
+    const sessions = sorted
       .map((s) => ({
         fecha: s.session_date ?? s.created_at.slice(0, 10),
-        texto: s.raw_text ?? "",
+        texto: (s.raw_text ?? "").slice(0, MAX_CHARS),
       }))
       .filter((s) => s.texto.trim().length > 0)
+      .slice(-MAX_SESSIONS) // take the most recent MAX_SESSIONS
 
     if (sessions.length === 0) {
       return NextResponse.json(

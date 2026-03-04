@@ -13,7 +13,7 @@ import { PixelCanvas } from "@/components/ui/pixel-canvas"
 import { PatientMetrics } from "@/components/PatientMetrics"
 import { PatientEvolutionChart } from "@/components/PatientEvolutionChart"
 import { WaveText } from "@/components/ui/wave-text"
-import { Search } from "lucide-react"
+import { Search, ChevronRight } from "lucide-react"
 
 interface Patient {
   id: string
@@ -118,6 +118,10 @@ export default function PatientDetailPage() {
   const [fillProgress, setFillProgress] = useState<{ current: number; total: number } | null>(null)
   const [fillError, setFillError] = useState<string | null>(null)
   const [fillDone, setFillDone] = useState(false)
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
+    const now = new Date()
+    return new Set([`y-${now.getFullYear()}`, `m-${now.getFullYear()}-${now.getMonth()}`])
+  })
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -535,7 +539,8 @@ export default function PatientDetailPage() {
           <div className="text-center py-8 text-gray-400 dark:text-slate-500 text-sm">
             No se encontraron sesiones con esa búsqueda.
           </div>
-        ) : (
+        ) : searchQuery.trim() ? (
+          // Flat list while searching
           <div className="space-y-3">
             {filteredSessions.map((s) => (
               <SessionCard
@@ -547,6 +552,90 @@ export default function PatientDetailPage() {
               />
             ))}
           </div>
+        ) : (
+          // Accordion grouped by year > month
+          (() => {
+            function toggleKey(key: string) {
+              setExpandedKeys((prev) => {
+                const next = new Set(prev)
+                if (next.has(key)) next.delete(key); else next.add(key)
+                return next
+              })
+            }
+            // Build year > month map
+            const yearMap = new Map<number, Map<number, Session[]>>()
+            for (const s of sessions) {
+              const d = new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at)
+              const y = d.getFullYear(), m = d.getMonth()
+              if (!yearMap.has(y)) yearMap.set(y, new Map())
+              const ym = yearMap.get(y)!
+              if (!ym.has(m)) ym.set(m, [])
+              ym.get(m)!.push(s)
+            }
+            // Sort sessions within each month descending
+            for (const ym of yearMap.values())
+              for (const ss of ym.values())
+                ss.sort((a, b) => new Date(b.session_date ? b.session_date + "T12:00:00" : b.created_at).getTime() - new Date(a.session_date ? a.session_date + "T12:00:00" : a.created_at).getTime())
+
+            return (
+              <div className="space-y-1">
+                {Array.from(yearMap.entries())
+                  .sort(([a], [b]) => b - a)
+                  .map(([year, monthMap]) => {
+                    const yearKey = `y-${year}`
+                    const yearExpanded = expandedKeys.has(yearKey)
+                    const yearCount = Array.from(monthMap.values()).reduce((n, ss) => n + ss.length, 0)
+                    return (
+                      <div key={year}>
+                        <button
+                          onClick={() => toggleKey(yearKey)}
+                          className="flex items-center gap-1.5 w-full text-left py-1.5 px-1 text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+                        >
+                          <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${yearExpanded ? "rotate-90" : ""}`} />
+                          {year} · {yearCount} {yearCount === 1 ? "sesión" : "sesiones"}
+                        </button>
+                        {yearExpanded && (
+                          <div className="ml-3 space-y-1 mt-0.5">
+                            {Array.from(monthMap.entries())
+                              .sort(([a], [b]) => b - a)
+                              .map(([month, ss]) => {
+                                const monthKey = `m-${year}-${month}`
+                                const monthExpanded = expandedKeys.has(monthKey)
+                                const monthName = new Date(year, month, 1)
+                                  .toLocaleDateString("es-AR", { month: "long" })
+                                return (
+                                  <div key={month}>
+                                    <button
+                                      onClick={() => toggleKey(monthKey)}
+                                      className="flex items-center gap-1.5 w-full text-left py-1 px-1 text-xs text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors capitalize"
+                                    >
+                                      <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${monthExpanded ? "rotate-90" : ""}`} />
+                                      {monthName} ({ss.length} {ss.length === 1 ? "sesión" : "sesiones"})
+                                    </button>
+                                    {monthExpanded && (
+                                      <div className="space-y-2 mt-1.5 ml-2">
+                                        {ss.map((s) => (
+                                          <SessionCard
+                                            key={s.id}
+                                            session={s}
+                                            token={token!}
+                                            onUpdate={load}
+                                            onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
+                                          />
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+              </div>
+            )
+          })()
         )}
       </section>
 
