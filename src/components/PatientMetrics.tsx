@@ -96,9 +96,11 @@ interface MetricCardProps {
   value: string | null
   glowColor: "blue" | "purple" | "green" | "orange"
   emoji: string
+  pendingLabel?: string
 }
 
-function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
+function MetricCard({ label, value, glowColor, emoji, pendingLabel }: MetricCardProps) {
+  const isProcessing = !value && pendingLabel?.includes("n8n")
   return (
     <GlowCard customSize glowColor={glowColor} className="w-full h-28 bg-white/90 dark:bg-slate-800/90">
       <Spotlight
@@ -110,7 +112,11 @@ function MetricCard({ label, value, glowColor, emoji }: MetricCardProps) {
         <div>
           <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
           <p className="text-sm font-bold text-gray-900 dark:text-slate-100 leading-snug">
-            {value ?? <span className="text-xs text-gray-400 dark:text-slate-500 font-normal italic">Pendiente de análisis</span>}
+            {value ?? (
+              <span className={`text-xs font-normal italic ${isProcessing ? "text-violet-500 dark:text-violet-400 animate-pulse" : "text-gray-400 dark:text-slate-500"}`}>
+                {pendingLabel ?? "Pendiente de análisis"}
+              </span>
+            )}
           </p>
         </div>
       </div>
@@ -136,9 +142,11 @@ function calcFinancials(sessions: Session[]) {
 export function PatientMetrics({
   sessions,
   caseSummary,
+  analysisTriggered,
 }: {
   sessions: Session[]
   caseSummary?: string | null
+  analysisTriggered?: boolean
 }) {
   const summaries = sessions.map(s => parseAiSummary(s.ai_summary)).filter((s): s is AiSummary => s !== null)
   const adherence = calcAdherence(sessions)
@@ -166,12 +174,18 @@ export function PatientMetrics({
   const topHypotheses = topN(allHypotheses, 4)
   const topPoints = topN(allPoints, 4)
 
+  // If n8n analysis was triggered but data isn't ready yet, show processing state
+  const pendingLabel = analysisTriggered
+    ? "Procesando en n8n..."
+    : "Pendiente de análisis"
+
   const metrics: MetricCardProps[] = [
     { label: "Sentimiento", value: mostFrequentWithPct(sentimientos), glowColor: "orange", emoji: "💛" },
     { label: "Pensamiento", value: mostFrequentWithPct(pensamientos), glowColor: "purple", emoji: "🧠" },
     { label: "Mecanismo de defensa", value: mostFrequentWithPct(mecanismos), glowColor: "blue", emoji: "🛡️" },
     { label: "Temática", value: mostFrequentWithPct(tematicas), glowColor: "green", emoji: "🗂️" },
   ]
+  void pendingLabel // used below in MetricCard render
 
   return (
     <section className="mb-6 space-y-4">
@@ -194,9 +208,16 @@ export function PatientMetrics({
         </div>
       )}
 
-      {/* 4 metric chips — always visible; show "Pendiente de análisis" when no data */}
+      {/* 4 metric chips — always visible */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {metrics.map((m) => <MetricCard key={m.label} {...m} />)}
+        {metrics.map((m) => (
+          <MetricCard
+            key={m.label}
+            {...m}
+            value={m.value ?? null}
+            pendingLabel={m.value == null ? pendingLabel : undefined}
+          />
+        ))}
       </div>
 
       {/* Monthly operational stats */}

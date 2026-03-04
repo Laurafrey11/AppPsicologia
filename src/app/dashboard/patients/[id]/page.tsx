@@ -116,6 +116,9 @@ export default function PatientDetailPage() {
   const [consultationLimitReached, setConsultationLimitReached] = useState(false)
   const [markingAllPaid, setMarkingAllPaid] = useState(false)
   const [analyzingMonth, setAnalyzingMonth] = useState<string | null>(null) // "year-month"
+  const [analysisTriggered, setAnalysisTriggered] = useState(false)
+  const [triggeringAnalysis, setTriggeringAnalysis] = useState(false)
+  const [triggerMessage, setTriggerMessage] = useState<string | null>(null)
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
     const now = new Date()
     return new Set([`m-${now.getFullYear()}-${now.getMonth()}`])
@@ -255,6 +258,21 @@ export default function PatientDetailPage() {
     }
   }
 
+  async function handleTriggerAnalysis() {
+    if (!token) return
+    setTriggeringAnalysis(true)
+    setTriggerMessage(null)
+    try {
+      await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
+      setAnalysisTriggered(true)
+      setTriggerMessage("Análisis iniciado en segundo plano. Los gráficos se actualizarán en unos momentos.")
+    } catch (err: unknown) {
+      setTriggerMessage(`Error: ${(err as Error).message}`)
+    } finally {
+      setTriggeringAnalysis(false)
+    }
+  }
+
   async function handleMarkAllPaid() {
     if (!token) return
     setMarkingAllPaid(true)
@@ -339,8 +357,30 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
+      {/* n8n analysis trigger */}
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <button
+          onClick={handleTriggerAnalysis}
+          disabled={triggeringAnalysis || analysisTriggered}
+          className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors ${
+            analysisTriggered
+              ? "border-violet-200 dark:border-violet-800 text-violet-400 dark:text-violet-500 cursor-default"
+              : triggeringAnalysis
+              ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
+              : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+          }`}
+        >
+          {triggeringAnalysis ? "Iniciando análisis..." : analysisTriggered ? "✅ Análisis en curso" : "✨ Procesar historial con IA"}
+        </button>
+        {triggerMessage && (
+          <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
+            {triggerMessage}
+          </p>
+        )}
+      </div>
+
       {/* Patient Metrics — clinical overview above reason */}
-      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} />
+      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} analysisTriggered={analysisTriggered} />
 
       {/* Evolution Chart */}
       <PatientEvolutionChart sessions={sessions} caseSummary={patient.case_summary} />
