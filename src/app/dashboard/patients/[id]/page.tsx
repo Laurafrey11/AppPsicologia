@@ -115,11 +115,9 @@ export default function PatientDetailPage() {
   const [savingReason, setSavingReason] = useState(false)
   const [consultationLimitReached, setConsultationLimitReached] = useState(false)
   const [markingAllPaid, setMarkingAllPaid] = useState(false)
-  const [caseAnalysis, setCaseAnalysis] = useState<{
-    summary: string; has_risk: boolean; tags: string[]; clinical_advice: string
-  } | null>(null)
-  const [processingHistory, setProcessingHistory] = useState(false)
-  const [processHistoryError, setProcessHistoryError] = useState<string | null>(null)
+  const [fillProgress, setFillProgress] = useState<{ current: number; total: number } | null>(null)
+  const [fillError, setFillError] = useState<string | null>(null)
+  const [fillDone, setFillDone] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -236,20 +234,29 @@ export default function PatientDetailPage() {
     }
   }
 
-  async function handleProcessHistory() {
+  async function handleFillSummaries() {
     if (!token) return
-    setProcessingHistory(true)
-    setProcessHistoryError(null)
+    setFillError(null)
+    setFillDone(false)
+    const pending = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
+    setFillProgress({ current: 0, total: pending })
+    let remaining = pending
     try {
-      const data = await apiFetch<{
-        analysis: { summary: string; has_risk: boolean; tags: string[]; clinical_advice: string }
-        sessionCount: number
-      }>(`/api/patients/${id}/process-history`, token, { method: "POST" })
-      setCaseAnalysis(data.analysis)
+      while (remaining > 0) {
+        const data = await apiFetch<{ processed: number; remaining: number }>(
+          `/api/patients/${id}/fill-summaries`,
+          token,
+          { method: "POST" }
+        )
+        remaining = data.remaining
+        setFillProgress((p) => p ? { ...p, current: p.total - remaining } : null)
+      }
+      setFillDone(true)
+      await load()
     } catch (err: unknown) {
-      setProcessHistoryError((err as Error).message)
+      setFillError((err as Error).message)
     } finally {
-      setProcessingHistory(false)
+      setFillProgress(null)
     }
   }
 
@@ -444,75 +451,44 @@ export default function PatientDetailPage() {
       </section>
 
       {/* ── Procesar historial con IA ───────────────────────────────────────── */}
-      {sessions.length > 0 && (
-        <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
-                Análisis transversal del caso
-              </h2>
-              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-                {sessions.filter((s) => !s.ai_summary).length > 0
-                  ? `${sessions.filter((s) => !s.ai_summary).length} sesión${sessions.filter((s) => !s.ai_summary).length !== 1 ? "es" : ""} pendiente${sessions.filter((s) => !s.ai_summary).length !== 1 ? "s" : ""} de análisis`
-                  : "Todas las sesiones analizadas"}
-              </p>
-            </div>
-            <button
-              onClick={handleProcessHistory}
-              disabled={processingHistory}
-              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-            >
-              {processingHistory ? "Analizando..." : caseAnalysis ? "Re-analizar" : "Procesar historial con IA"}
-            </button>
-          </div>
-
-          {processHistoryError && (
-            <p className="text-sm text-red-600 dark:text-red-400 mb-2">{processHistoryError}</p>
-          )}
-
-          {processingHistory && (
-            <p className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
-              Analizando {sessions.length} sesiones con el supervisor clínico IA...
-            </p>
-          )}
-
-          {caseAnalysis && !processingHistory && (
-            <div className="space-y-3">
-              {caseAnalysis.has_risk && (
-                <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400 font-semibold">
-                  <span>⚠</span> Indicadores de riesgo detectados
-                </div>
-              )}
-              {caseAnalysis.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {caseAnalysis.tags.map((tag) => (
-                    <span key={tag} className="text-xs bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900 px-2 py-0.5 rounded-full">
-                      {tag.startsWith("#") ? tag : `#${tag}`}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {caseAnalysis.summary && (
-                <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
-                  {caseAnalysis.summary}
+      {(() => {
+        const pending = sessions.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
+        if (pending === 0 && !fillDone) return null
+        return (
+          <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider">
+                  Análisis pendiente
+                </h2>
+                <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
+                  {fillDone
+                    ? "Todas las sesiones analizadas — gráficos actualizados"
+                    : fillProgress
+                    ? `Procesando ${fillProgress.current} de ${fillProgress.total} sesiones...`
+                    : `${pending} sesión${pending !== 1 ? "es" : ""} importada${pending !== 1 ? "s" : ""} sin análisis de IA`}
                 </p>
+              </div>
+              {!fillProgress && !fillDone && (
+                <button
+                  onClick={handleFillSummaries}
+                  className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Procesar historial con IA
+                </button>
               )}
-              {caseAnalysis.clinical_advice && (
-                <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2.5">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">Sugerencia clínica</p>
-                  <p className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed">{caseAnalysis.clinical_advice}</p>
-                </div>
+              {fillProgress && (
+                <span className="text-xs text-gray-400 dark:text-slate-500 animate-pulse">
+                  {fillProgress.current}/{fillProgress.total}
+                </span>
               )}
             </div>
-          )}
-
-          {!caseAnalysis && !processingHistory && (
-            <p className="text-xs text-gray-400 dark:text-slate-500">
-              El análisis transversal lee todas las sesiones del paciente y detecta patrones, evolución y puntos ciegos clínicos.
-            </p>
-          )}
-        </section>
-      )}
+            {fillError && (
+              <p className="text-xs text-red-500 mt-2">{fillError}</p>
+            )}
+          </section>
+        )
+      })()}
 
       {/* Sessions */}
       <section className="mb-8">

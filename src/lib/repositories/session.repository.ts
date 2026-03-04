@@ -283,6 +283,55 @@ export async function updateSessionPaid(
   return data
 }
 
+/** Returns up to `limit` sessions that need AI processing (ai_summary IS NULL, raw_text not empty) */
+export async function findSessionsWithoutSummary(
+  patientId: string,
+  psychologistId: string,
+  limit = 3
+): Promise<Session[]> {
+  const { data, error } = await supabaseAdmin
+    .from("sessions")
+    .select("*")
+    .eq("patient_id", patientId)
+    .eq("psychologist_id", psychologistId)
+    .is("ai_summary", null)
+    .not("raw_text", "is", null)
+    .neq("raw_text", "")
+    .order("created_at", { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return (data ?? []) as Session[]
+}
+
+export async function countSessionsWithoutSummary(
+  patientId: string,
+  psychologistId: string
+): Promise<number> {
+  const { count, error } = await supabaseAdmin
+    .from("sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("patient_id", patientId)
+    .eq("psychologist_id", psychologistId)
+    .is("ai_summary", null)
+    .not("raw_text", "is", null)
+    .neq("raw_text", "")
+  if (error) throw new Error(error.message)
+  return count ?? 0
+}
+
+export async function updateSessionAiSummary(
+  id: string,
+  psychologistId: string,
+  aiSummary: string
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("sessions")
+    .update({ ai_summary: aiSummary })
+    .eq("id", id)
+    .eq("psychologist_id", psychologistId)
+  if (error) throw new Error(error.message)
+}
+
 export async function markAllSessionsPaid(
   patientId: string,
   psychologistId: string
