@@ -306,6 +306,28 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
+
+      {/* ── Analyze banner (visible without expanding the card) ── */}
+      {!session.ai_summary && session.raw_text?.trim() && (
+        <div className="flex items-center justify-between px-5 py-2 bg-violet-50 dark:bg-violet-950/20 border-b border-violet-100 dark:border-violet-900">
+          <span className="text-xs text-violet-500 dark:text-violet-400">Sin análisis IA</span>
+          <button
+            onClick={handleAnalyze}
+            disabled={analyzing}
+            className="flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-300 hover:text-violet-900 dark:hover:text-violet-100 disabled:opacity-50 transition-colors"
+          >
+            {analyzing ? (
+              <><Loader2 className="w-3 h-3 animate-spin" />Analizando...</>
+            ) : (
+              <>✨ Analizar esta sesión</>
+            )}
+          </button>
+        </div>
+      )}
+      {analyzeError && (
+        <p className="px-5 py-1 text-xs text-red-500 bg-red-50 dark:bg-red-950/20">{analyzeError}</p>
+      )}
+
       <button
         onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-start justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
@@ -332,11 +354,6 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                 </span>
               ))}
             </div>
-          )}
-          {!session.ai_summary && session.raw_text?.trim() && (
-            <span className="text-xs text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-2 py-0.5 rounded-full w-fit">
-              Sin analizar
-            </span>
           )}
           {localTags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
@@ -560,23 +577,10 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
             </div>
           )}
 
-          {!summary && session.raw_text?.trim() && (
-            <div className="flex flex-col gap-2">
-              {analyzeError && (
-                <p className="text-xs text-red-500">{analyzeError}</p>
-              )}
-              <button
-                onClick={handleAnalyze}
-                disabled={analyzing}
-                className="self-start flex items-center gap-1.5 text-xs font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 hover:bg-violet-100 dark:hover:bg-violet-900/30 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {analyzing ? (
-                  <><Loader2 className="w-3 h-3 animate-spin" />Analizando...</>
-                ) : (
-                  <>✨ Analizar con IA</>
-                )}
-              </button>
-            </div>
+          {!summary && !session.session_notes && !session.raw_text?.trim() && (
+            <p className="text-xs text-gray-400 dark:text-slate-500 italic">
+              Esta sesión no tiene contenido de texto.
+            </p>
           )}
 
           {summary && (

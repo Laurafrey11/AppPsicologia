@@ -589,21 +589,24 @@ export default function PatientDetailPage() {
                                     >
                                       <ChevronRight className={`w-3 h-3 transition-transform flex-shrink-0 ${monthExpanded ? "rotate-90" : ""}`} />
                                       {monthName} ({ss.length} {ss.length === 1 ? "sesión" : "sesiones"})
+                                      {pendingInMonth > 0 && (
+                                        <span className="ml-1 text-violet-500 dark:text-violet-400 font-normal normal-case tracking-normal">
+                                          · {pendingInMonth} sin analizar
+                                        </span>
+                                      )}
                                     </button>
-                                    {pendingInMonth > 0 && (
-                                      <button
-                                        onClick={() => handleAnalyzeMonth(year, month)}
-                                        disabled={!!analyzingMonth}
-                                        className="flex items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300 disabled:opacity-50 transition-colors flex-shrink-0 px-1 py-0.5"
-                                        title={`Analizar ${pendingInMonth} sesión${pendingInMonth > 1 ? "es" : ""} pendiente${pendingInMonth > 1 ? "s" : ""}`}
-                                      >
-                                        {isAnalyzingThisMonth ? (
-                                          <span className="animate-pulse">Analizando...</span>
-                                        ) : (
-                                          <>✨ Analizar mes</>
-                                        )}
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleAnalyzeMonth(year, month) }}
+                                      disabled={!!analyzingMonth || pendingInMonth === 0}
+                                      className="flex items-center gap-1 text-xs font-medium border rounded px-2 py-0.5 flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-default border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                      title={pendingInMonth > 0 ? `Analizar ${pendingInMonth} sesión${pendingInMonth > 1 ? "es" : ""} pendiente${pendingInMonth > 1 ? "s" : ""}` : "Todas las sesiones ya están analizadas"}
+                                    >
+                                      {isAnalyzingThisMonth ? (
+                                        <span className="animate-pulse">Analizando...</span>
+                                      ) : (
+                                        <>✨ Analizar mes</>
+                                      )}
+                                    </button>
                                     </div>
                                     {monthExpanded && (
                                       <div className="space-y-2 mt-1.5 ml-2">
