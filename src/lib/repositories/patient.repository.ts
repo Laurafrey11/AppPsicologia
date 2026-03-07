@@ -12,6 +12,15 @@ export type Patient = {
   historical_import_done: boolean
   recording_consent_at: string | null
   created_at: string
+  // Direct column for monthly billing rate (set by user, used by dashboard)
+  monthly_rate?: number | null
+  // Fields written by n8n after analysis (optional — may not exist on all rows)
+  sentiment_score?: number | null
+  anxiety_level?: number | null
+  presumptive_diagnosis?: string | null
+  therapeutic_recommendations?: string | null
+  main_defense_mechanisms?: string | null
+  primary_theme?: string | null
 }
 
 /**

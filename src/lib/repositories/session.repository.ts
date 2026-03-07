@@ -377,68 +377,54 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   }
   const sessions = allSessions ?? []
 
-  // Patient counts + case_summary for monthly rate configs — run in parallel
+  // Patient data: counts + monthly_rate column — run in parallel
   const [
     { count: activeCount, error: activeErr },
     { count: inactiveCount, error: inactiveErr },
-    { data: patientConfigs },
+    { data: patientRows },
   ] = await Promise.all([
+    // Active = is_active OR historical_import_done (patients with real history count)
     supabaseAdmin
       .from("patients")
       .select("id", { count: "exact", head: true })
       .eq("psychologist_id", psychologistId)
-      .eq("is_active", true),
+      .or("is_active.eq.true,historical_import_done.eq.true"),
     supabaseAdmin
       .from("patients")
       .select("id", { count: "exact", head: true })
       .eq("psychologist_id", psychologistId)
-      .eq("is_active", false),
+      .eq("is_active", false)
+      .eq("historical_import_done", false),
     supabaseAdmin
       .from("patients")
-      .select("id, case_summary")
+      .select("id, monthly_rate")
       .eq("psychologist_id", psychologistId),
   ])
 
   if (activeErr) console.error("[getPracticeStats] active patients query failed:", activeErr.message)
   if (inactiveErr) console.error("[getPracticeStats] inactive patients query failed:", inactiveErr.message)
 
-  // Build flat rate lookup: patient_id → month_key → amount
-  // month_key format: "${year}-${month}" (0-based, same as JS Date.getMonth())
-  const flatRates: Record<string, Record<string, number>> = {}
-  for (const p of patientConfigs ?? []) {
-    if (!p.case_summary) continue
-    try {
-      const obj = JSON.parse(p.case_summary) as Record<string, unknown>
-      const mr = obj.monthly_rates as Record<string, { mode: string; amount?: number }> | undefined
-      if (!mr) continue
-      flatRates[p.id] = {}
-      for (const [key, cfg] of Object.entries(mr)) {
-        if (cfg.mode === "flat" && cfg.amount != null) {
-          flatRates[p.id][key] = cfg.amount
-        }
-      }
-    } catch { /* ignore malformed */ }
+  // Build monthly_rate lookup: patient_id → rate (from direct column)
+  const monthlyRateByPatient: Record<string, number | null> = {}
+  for (const p of patientRows ?? []) {
+    monthlyRateByPatient[p.id] = p.monthly_rate ?? null
   }
 
-  // "This month" = sessions created (imported or recorded) in the current calendar month.
-  // Always use created_at so imported historical sessions appear in the month they were entered.
+  // "This month" = sessions created in the current calendar month (no payment filter)
   const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
 
-  // Income this month: per patient, apply flat rate × session count OR sum paid fees
-  const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
+  // Income this month:
+  //   Caso A: monthly_rate > 0  →  rate × sessions_count
+  //   Caso B: monthly_rate null/0 → sum of individual session fees
   const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
   let income_this_month = 0
   for (const patientId of patientIdsThisMonth) {
-    const flatRate = flatRates[patientId]?.[currentMonthKey]
+    const rate = Number(monthlyRateByPatient[patientId] ?? 0)
     const patientSessions = thisMonthSessions.filter((s) => s.patient_id === patientId)
-    if (flatRate != null) {
-      // Tarifa fija por sesión: rate × cantidad de sesiones del mes
-      income_this_month += Number(flatRate) * patientSessions.length
+    if (rate > 0) {
+      income_this_month += rate * patientSessions.length
     } else {
-      // Sin tarifa fija: suma de fees individuales de sesiones pagadas
-      income_this_month += patientSessions
-        .filter((s) => s.paid)
-        .reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
+      income_this_month += patientSessions.reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
     }
   }
 

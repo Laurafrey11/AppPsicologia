@@ -106,9 +106,13 @@ const SERIES = [
 export function PatientEvolutionChart({
   sessions,
   caseSummary,
+  sentimentScore,
+  anxietyLevel,
 }: {
   sessions: Session[]
   caseSummary?: string | null
+  sentimentScore?: number | null
+  anxietyLevel?: number | null
 }) {
   const [hovered, setHovered] = useState<{ idx: number; x: number; y: number } | null>(null)
 
@@ -116,7 +120,6 @@ export function PatientEvolutionChart({
   const globalScores = useMemo((): GlobalScore[] | null => {
     const parsed = parseCaseSummary(caseSummary ?? null)
     if (!parsed) return null
-    // If structured JSON scores exist, use them directly
     if (Array.isArray(parsed.scores) && parsed.scores.length > 0) return parsed.scores
     return null
   }, [caseSummary])
@@ -128,7 +131,7 @@ export function PatientEvolutionChart({
       return da.getTime() - db.getTime()
     })
 
-    // If global scores available, use them (matched by date or by index)
+    // Priority 1: structured JSON scores from case_summary
     if (globalScores && globalScores.length >= 2) {
       const sortedScores = [...globalScores].sort((a, b) => a.fecha.localeCompare(b.fecha))
       return sortedScores.map((gs, i) => {
@@ -147,29 +150,66 @@ export function PatientEvolutionChart({
       })
     }
 
-    // Fallback: read from individual session ai_summary
-    return sorted.map((s, i) => {
+    // Priority 2: per-session ai_summary scores
+    const sessionPoints = sorted.map((s, i) => {
       const summary = parseAiSummary(s.ai_summary)
       const sent = summary?.sentimiento_predominante ?? ""
       const date = new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at)
-
       let daysSincePrev: number | null = null
       if (i > 0) {
         const prev = sorted[i - 1]
         const prevDate = new Date(prev.session_date ? prev.session_date + "T12:00:00" : prev.created_at)
         daysSincePrev = Math.round((date.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24))
       }
-
       return {
         label: date.toLocaleDateString("es-AR", { day: "numeric", month: "short" }),
-        animo:     sent ? (ANIMO_MAP[sent] ?? 5) : null,
-        ansiedad:  sent ? (ANSIEDAD_MAP[sent] ?? 5) : null,
+        animo:     sent ? (ANIMO_MAP[sent] ?? null) : null,
+        ansiedad:  sent ? (ANSIEDAD_MAP[sent] ?? null) : null,
         adherencia: adherenciaScore(daysSincePrev),
       }
     })
-  }, [sessions, globalScores])
 
-  // Only render with at least 2 sessions
+    // If session points have no scores but patient has DB-level scores, add current state point
+    const hasSessionScores = sessionPoints.some(p => p.animo != null || p.ansiedad != null)
+    if (!hasSessionScores && (sentimentScore != null || anxietyLevel != null)) {
+      return [{
+        label: "Actual",
+        animo: sentimentScore ?? null,
+        ansiedad: anxietyLevel ?? null,
+        adherencia: 5,
+      }]
+    }
+
+    return sessionPoints
+  }, [sessions, globalScores, sentimentScore, anxietyLevel])
+
+  // Show single-point summary card when only current values are available
+  if (points.length === 1 && points[0].label === "Actual") {
+    return (
+      <section className="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
+        <h2 className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-3">
+          Estado actual — IA
+        </h2>
+        <div className="flex gap-6">
+          {points[0].animo != null && (
+            <div>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">Ánimo</p>
+              <p className="text-2xl font-bold text-orange-500">{points[0].animo}<span className="text-sm text-gray-400">/10</span></p>
+            </div>
+          )}
+          {points[0].ansiedad != null && (
+            <div>
+              <p className="text-xs text-gray-400 dark:text-slate-500 mb-1">Ansiedad</p>
+              <p className="text-2xl font-bold text-purple-500">{points[0].ansiedad}<span className="text-sm text-gray-400">/10</span></p>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mt-3">El gráfico de evolución aparecerá cuando haya más registros.</p>
+      </section>
+    )
+  }
+
+  // Need at least 2 points for a meaningful line chart
   if (points.length < 2) return null
 
   const n = points.length

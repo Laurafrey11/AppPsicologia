@@ -25,6 +25,14 @@ interface Patient {
   historical_import_done: boolean
   recording_consent_at: string | null
   created_at: string
+  monthly_rate: number | null
+  // n8n analysis fields
+  sentiment_score: number | null
+  anxiety_level: number | null
+  presumptive_diagnosis: string | null
+  therapeutic_recommendations: string | null
+  main_defense_mechanisms: string | null
+  primary_theme: string | null
 }
 
 interface SessionNotes {
@@ -401,10 +409,28 @@ export default function PatientDetailPage() {
 
 
       {/* Patient Metrics — clinical overview above reason */}
-      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} analysisTriggered={analysisTriggered} monthlyRates={monthlyRates} />
+      <PatientMetrics
+        sessions={sessions}
+        caseSummary={patient.case_summary}
+        analysisTriggered={analysisTriggered}
+        monthlyRates={monthlyRates}
+        patientData={{
+          sentiment_score: patient.sentiment_score,
+          anxiety_level: patient.anxiety_level,
+          presumptive_diagnosis: patient.presumptive_diagnosis,
+          therapeutic_recommendations: patient.therapeutic_recommendations,
+          main_defense_mechanisms: patient.main_defense_mechanisms,
+          primary_theme: patient.primary_theme,
+        }}
+      />
 
       {/* Evolution Chart */}
-      <PatientEvolutionChart sessions={sessions} caseSummary={patient.case_summary} />
+      <PatientEvolutionChart
+        sessions={sessions}
+        caseSummary={patient.case_summary}
+        sentimentScore={patient.sentiment_score}
+        anxietyLevel={patient.anxiety_level}
+      />
 
       {/* Supervision */}
       {sessions.length >= 5 && (

@@ -147,16 +147,27 @@ function calcFinancials(sessions: Session[], monthlyRates: MonthlyRates = {}) {
   return { sessionsThisMonth: thisMonth.length, income, isFlat: flatConfig?.mode === "flat", hoursWorked }
 }
 
+interface PatientData {
+  sentiment_score?: number | null
+  anxiety_level?: number | null
+  presumptive_diagnosis?: string | null
+  therapeutic_recommendations?: string | null
+  main_defense_mechanisms?: string | null
+  primary_theme?: string | null
+}
+
 export function PatientMetrics({
   sessions,
   caseSummary,
   analysisTriggered,
   monthlyRates = {},
+  patientData = {},
 }: {
   sessions: Session[]
   caseSummary?: string | null
   analysisTriggered?: boolean
   monthlyRates?: MonthlyRates
+  patientData?: PatientData
 }) {
   const summaries = sessions.map(s => parseAiSummary(s.ai_summary)).filter((s): s is AiSummary => s !== null)
   const adherence = calcAdherence(sessions)
@@ -167,6 +178,7 @@ export function PatientMetrics({
   // Parse caseSummary — handles both JSON (app-generated) and plain Markdown (n8n-generated)
   const parsedCase = parseCaseSummary(caseSummary ?? null)
 
+  // Fallback values from aggregated ai_summary when DB fields are absent
   const sentimientos = summaries.map(s => s.sentimiento_predominante ?? "").filter(Boolean)
   const pensamientos = summaries.map(s => s.pensamiento_predominante ?? "").filter(Boolean)
   const mecanismos = summaries.map(s => s.mecanismo_defensa ?? "").filter(Boolean)
@@ -177,18 +189,24 @@ export function PatientMetrics({
   const topHypotheses = topN(allHypotheses, 4)
   const topPoints = topN(allPoints, 4)
 
-  // If n8n analysis was triggered but data isn't ready yet, show processing state
-  const pendingLabel = analysisTriggered
-    ? "Procesando en n8n..."
-    : "Pendiente de análisis"
+  const pendingLabel = analysisTriggered ? "Procesando en n8n..." : "Pendiente de análisis"
+
+  // DB fields take priority; fall back to ai_summary aggregation
+  const sentimientoValue = patientData.sentiment_score != null
+    ? `${patientData.sentiment_score}/10`
+    : mostFrequentWithPct(sentimientos)
+  const ansiedadValue = patientData.anxiety_level != null
+    ? `${patientData.anxiety_level}/10`
+    : mostFrequentWithPct(pensamientos)
+  const mecanismoValue = patientData.main_defense_mechanisms?.trim() || mostFrequentWithPct(mecanismos)
+  const tematicaValue = patientData.primary_theme?.trim() || mostFrequentWithPct(tematicas)
 
   const metrics: MetricCardProps[] = [
-    { label: "Sentimiento", value: mostFrequentWithPct(sentimientos), glowColor: "orange", emoji: "💛" },
-    { label: "Pensamiento", value: mostFrequentWithPct(pensamientos), glowColor: "purple", emoji: "🧠" },
-    { label: "Mecanismo de defensa", value: mostFrequentWithPct(mecanismos), glowColor: "blue", emoji: "🛡️" },
-    { label: "Temática", value: mostFrequentWithPct(tematicas), glowColor: "green", emoji: "🗂️" },
+    { label: "Sentimiento", value: sentimientoValue, glowColor: "orange", emoji: "💛" },
+    { label: "Ansiedad", value: ansiedadValue, glowColor: "purple", emoji: "🧠" },
+    { label: "Mecanismo de defensa", value: mecanismoValue, glowColor: "blue", emoji: "🛡️" },
+    { label: "Temática principal", value: tematicaValue, glowColor: "green", emoji: "🗂️" },
   ]
-  void pendingLabel // used below in MetricCard render
 
   return (
     <section className="mb-6 space-y-4">
@@ -196,39 +214,22 @@ export function PatientMetrics({
         Métricas clínicas · {sessions.length} sesión{sessions.length !== 1 ? "es" : ""}
       </h2>
 
-      {/* Case summary — only shows when properly analyzed (not _processing) */}
+      {/* Case summary from n8n */}
       {parsedCase && (
-        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4 space-y-3">
+        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4">
           <TextScramble
             as="h3"
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2"
             duration={0.7}
             speed={0.025}
           >
             Resumen clínico — IA
           </TextScramble>
-          {/* Scores numéricos extraídos del Markdown de n8n */}
-          {(parsedCase.sentimiento != null || parsedCase.ansiedad != null) && (
-            <div className="flex gap-4">
-              {parsedCase.sentimiento != null && (
-                <div className="text-center">
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Sentimiento</p>
-                  <p className="text-lg font-bold text-orange-500">{parsedCase.sentimiento}/10</p>
-                </div>
-              )}
-              {parsedCase.ansiedad != null && (
-                <div className="text-center">
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Ansiedad</p>
-                  <p className="text-lg font-bold text-purple-500">{parsedCase.ansiedad}/10</p>
-                </div>
-              )}
-            </div>
-          )}
           <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{parsedCase.summary}</p>
         </div>
       )}
 
-      {/* 4 metric chips — always visible */}
+      {/* 4 metric cards — DB fields first, ai_summary fallback */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {metrics.map((m) => (
           <MetricCard
@@ -239,6 +240,30 @@ export function PatientMetrics({
           />
         ))}
       </div>
+
+      {/* Diagnóstico Presuntivo — from DB */}
+      {patientData.presumptive_diagnosis?.trim() && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-4">
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">
+            Diagnóstico Presuntivo
+          </p>
+          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
+            {patientData.presumptive_diagnosis}
+          </p>
+        </div>
+      )}
+
+      {/* Recomendaciones Terapéuticas — from DB */}
+      {patientData.therapeutic_recommendations?.trim() && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-xl p-4">
+          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-2">
+            Recomendaciones Terapéuticas
+          </p>
+          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
+            {patientData.therapeutic_recommendations}
+          </p>
+        </div>
+      )}
 
       {/* Monthly operational stats */}
       {sessions.length > 0 && (
