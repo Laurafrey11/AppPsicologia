@@ -303,7 +303,11 @@ export default function PatientDetailPage() {
     try {
       await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
       setAnalysisTriggered(true)
-      setTriggerMessage("Análisis iniciado en segundo plano. Los gráficos se actualizarán en unos momentos.")
+      setTriggerMessage("Análisis iniciado. Actualizando datos automáticamente…")
+      // n8n procesa de forma asíncrona — recargamos a 5s, 15s y 30s para capturar el resultado
+      setTimeout(() => load(), 5_000)
+      setTimeout(() => load(), 15_000)
+      setTimeout(() => { load(); setAnalysisTriggered(false) }, 30_000)
     } catch (err: unknown) {
       setTriggerMessage(`Error: ${(err as Error).message}`)
     } finally {

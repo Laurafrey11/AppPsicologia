@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { parseCaseSummary } from "@/lib/utils/case-summary-parser"
 
 interface AiSummary {
   sentimiento_predominante?: string
@@ -111,13 +112,13 @@ export function PatientEvolutionChart({
 }) {
   const [hovered, setHovered] = useState<{ idx: number; x: number; y: number } | null>(null)
 
-  // Try to read global scores from case_summary (set by process-history endpoint)
+  // Parse case_summary — handles JSON (structured scores) and Markdown (n8n plain text)
   const globalScores = useMemo((): GlobalScore[] | null => {
-    if (!caseSummary) return null
-    try {
-      const parsed = JSON.parse(caseSummary) as { scores?: GlobalScore[] }
-      return Array.isArray(parsed.scores) && parsed.scores.length > 0 ? parsed.scores : null
-    } catch { return null }
+    const parsed = parseCaseSummary(caseSummary ?? null)
+    if (!parsed) return null
+    // If structured JSON scores exist, use them directly
+    if (Array.isArray(parsed.scores) && parsed.scores.length > 0) return parsed.scores
+    return null
   }, [caseSummary])
 
   const points = useMemo((): DataPoint[] => {

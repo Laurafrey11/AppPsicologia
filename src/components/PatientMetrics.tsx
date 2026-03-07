@@ -3,6 +3,7 @@
 import { GlowCard } from "@/components/ui/spotlight-card"
 import { Spotlight } from "@/components/ui/spotlight"
 import { TextScramble } from "@/components/ui/text-scramble"
+import { parseCaseSummary } from "@/lib/utils/case-summary-parser"
 
 interface AiSummary {
   sentimiento_predominante?: string
@@ -163,15 +164,8 @@ export function PatientMetrics({
 
   if (sessions.length === 0) return null
 
-  // Parse caseSummary JSON safely (may be a CaseAnalysis or a _processing state)
-  const parsedCase = (() => {
-    if (!caseSummary) return null
-    try {
-      const obj = JSON.parse(caseSummary) as Record<string, unknown>
-      if (obj._processing) return null // mid-processing state, don't display
-      return typeof obj.summary === "string" ? obj as { summary: string } : null
-    } catch { return null }
-  })()
+  // Parse caseSummary — handles both JSON (app-generated) and plain Markdown (n8n-generated)
+  const parsedCase = parseCaseSummary(caseSummary ?? null)
 
   const sentimientos = summaries.map(s => s.sentimiento_predominante ?? "").filter(Boolean)
   const pensamientos = summaries.map(s => s.pensamiento_predominante ?? "").filter(Boolean)
@@ -204,15 +198,32 @@ export function PatientMetrics({
 
       {/* Case summary — only shows when properly analyzed (not _processing) */}
       {parsedCase && (
-        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4">
+        <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl p-4 space-y-3">
           <TextScramble
             as="h3"
-            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-2"
+            className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider"
             duration={0.7}
             speed={0.025}
           >
-            Resumen clínico acumulado
+            Resumen clínico — IA
           </TextScramble>
+          {/* Scores numéricos extraídos del Markdown de n8n */}
+          {(parsedCase.sentimiento != null || parsedCase.ansiedad != null) && (
+            <div className="flex gap-4">
+              {parsedCase.sentimiento != null && (
+                <div className="text-center">
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Sentimiento</p>
+                  <p className="text-lg font-bold text-orange-500">{parsedCase.sentimiento}/10</p>
+                </div>
+              )}
+              {parsedCase.ansiedad != null && (
+                <div className="text-center">
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Ansiedad</p>
+                  <p className="text-lg font-bold text-purple-500">{parsedCase.ansiedad}/10</p>
+                </div>
+              )}
+            </div>
+          )}
           <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">{parsedCase.summary}</p>
         </div>
       )}
