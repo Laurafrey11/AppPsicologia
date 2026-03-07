@@ -423,14 +423,17 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
   let income_this_month = 0
   for (const patientId of patientIdsThisMonth) {
-    const rate = Number(monthlyRateByPatient[patientId] ?? 0)
+    const rate = Number(monthlyRateByPatient[patientId] ?? 0) || 0
     const patientPaidSessions = paidThisMonth.filter((s) => s.patient_id === patientId)
     if (rate > 0) {
       // Tarifa fija × cantidad de sesiones pagadas
       income_this_month += rate * patientPaidSessions.length
     } else {
       // Suma de honorarios individuales, solo los pagados
-      income_this_month += patientPaidSessions.reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
+      income_this_month += patientPaidSessions.reduce(
+        (sum, s) => sum + (Number(s.fee ?? 0) || 0),
+        0
+      )
     }
   }
 
