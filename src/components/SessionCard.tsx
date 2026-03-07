@@ -328,33 +328,29 @@ export function SessionCard({ session, token, patientId, onUpdate, onDelete, dis
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
 
-      {/* ── Analyze banner (always visible when session has text content) ── */}
-      {session.raw_text?.trim() && (
-        <div className={`flex items-center justify-between px-4 py-2 border-b ${
-          session.ai_summary
-            ? "bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700"
-            : "bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800"
-        }`}>
-          <span className={`text-xs ${session.ai_summary ? "text-gray-400 dark:text-slate-500" : "text-violet-600 dark:text-violet-300"}`}>
-            {session.ai_summary ? "Sesión analizada" : "✨ Esta sesión aún no tiene análisis."}
+      {/* ── Analyze banner: only for sessions without ai_summary ── */}
+      {!session.ai_summary && session.raw_text?.trim() && (
+        <div className="flex items-center justify-between px-4 py-2 bg-violet-50 dark:bg-violet-950/30 border-b border-violet-200 dark:border-violet-800">
+          <span className="text-xs text-violet-600 dark:text-violet-300">
+            ✨ Esta sesión aún no tiene análisis.
           </span>
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
-            className={`flex items-center gap-1.5 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors ${
-              session.ai_summary
-                ? "text-gray-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 border border-gray-200 dark:border-slate-700 hover:border-violet-300"
-                : "text-white bg-violet-600 hover:bg-violet-700"
-            }`}
+            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors"
           >
             {analyzing ? (
               <><Loader2 className="w-3 h-3 animate-spin" />Enviando...</>
-            ) : session.ai_summary ? (
-              <>Re-analizar</>
             ) : (
               <>Analizar ahora</>
             )}
           </button>
+        </div>
+      )}
+      {/* ── Already analyzed indicator ── */}
+      {session.ai_summary && (
+        <div className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 border-b border-emerald-100 dark:border-emerald-900">
+          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Analizada</span>
         </div>
       )}
       {analyzeError && (
