@@ -374,7 +374,7 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
           <button
             onClick={handleTogglePaid}
             disabled={togglingPaid}
-            className="flex items-center gap-1 disabled:opacity-50 transition-opacity"
+            className="flex items-center gap-1.5 disabled:opacity-50 transition-opacity"
             title={paid ? "Click para marcar como no pagado" : "Click para marcar como pagado"}
           >
             {togglingPaid ? (
@@ -382,9 +382,16 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
             ) : (
               <TogglePaid checked={paid} size={34} />
             )}
-            <span className={`text-xs font-semibold ${paid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
-              {paid ? "Pagado" : "Sin pagar"}
-            </span>
+            <div className="flex flex-col items-start leading-tight">
+              <span className={`text-xs font-semibold ${paid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                {paid ? "Pagado" : "Sin pagar"}
+              </span>
+              {localFee != null && (
+                <span className="text-xs text-gray-400 dark:text-slate-500">
+                  ${localFee.toLocaleString("es-AR")}
+                </span>
+              )}
+            </div>
           </button>
           <svg
             className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform mt-0.5 ${expanded ? "rotate-180" : ""}`}

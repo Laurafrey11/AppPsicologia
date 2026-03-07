@@ -129,7 +129,7 @@ function calcFinancials(sessions: Session[]) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
   const thisMonth = sessions.filter(
-    (s) => new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at) >= startOfMonth
+    (s) => new Date(s.created_at) >= startOfMonth
   )
   const income = thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + (s.fee ?? 0), 0)
   const hoursWorked = thisMonth.reduce(

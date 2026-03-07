@@ -357,27 +357,6 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
-      {/* n8n analysis trigger */}
-      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-        <button
-          onClick={handleTriggerAnalysis}
-          disabled={triggeringAnalysis || analysisTriggered}
-          className={`flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg border transition-colors ${
-            analysisTriggered
-              ? "border-violet-200 dark:border-violet-800 text-violet-400 dark:text-violet-500 cursor-default"
-              : triggeringAnalysis
-              ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
-              : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
-          }`}
-        >
-          {triggeringAnalysis ? "Iniciando análisis..." : analysisTriggered ? "✅ Análisis en curso" : "✨ Procesar historial con IA"}
-        </button>
-        {triggerMessage && (
-          <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
-            {triggerMessage}
-          </p>
-        )}
-      </div>
 
       {/* Patient Metrics — clinical overview above reason */}
       <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} analysisTriggered={analysisTriggered} />
@@ -501,6 +480,25 @@ export default function PatientDetailPage() {
               >
                 {markingAllPaid ? "Marcando..." : "Marcar todas como pagas"}
               </button>
+            )}
+            {/* Analizar todo — dispara n8n para procesar historial y llenar case_summary */}
+            <button
+              onClick={handleTriggerAnalysis}
+              disabled={triggeringAnalysis || analysisTriggered}
+              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
+                analysisTriggered
+                  ? "border-violet-200 dark:border-violet-800 text-violet-400 dark:text-violet-500 cursor-default"
+                  : triggeringAnalysis
+                  ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
+                  : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+              }`}
+            >
+              {triggeringAnalysis ? "Iniciando..." : analysisTriggered ? "✅ Análisis en curso" : "✨ Analizar todo"}
+            </button>
+            {triggerMessage && (
+              <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
+                {triggerMessage}
+              </p>
             )}
             {patient.historical_import_done ? (
               <span className="text-xs text-gray-400 dark:text-slate-500 italic">

@@ -393,14 +393,9 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   if (activeErr) console.error("[getPracticeStats] active patients query failed:", activeErr.message)
   if (inactiveErr) console.error("[getPracticeStats] inactive patients query failed:", inactiveErr.message)
 
-  // "This month" = sessions whose effective date (session_date, else created_at) is in the current month.
-  // This catches both newly created sessions and imported historical sessions with session_date this month.
-  const thisMonthSessions = sessions.filter((s) => {
-    const d = s.session_date
-      ? new Date(s.session_date + "T12:00:00")
-      : new Date(s.created_at)
-    return d >= startOfMonth
-  })
+  // "This month" = sessions created (imported or recorded) in the current calendar month.
+  // Always use created_at so imported historical sessions appear in the month they were entered.
+  const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
   const income_this_month = thisMonthSessions
     .filter((s) => s.paid)
     .reduce((sum, s) => sum + (s.fee ?? 0), 0)
