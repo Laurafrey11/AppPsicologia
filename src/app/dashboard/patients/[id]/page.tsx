@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { SessionCard } from "@/components/SessionCard"
@@ -48,6 +48,9 @@ interface Session {
   paid: boolean
   fee: number | null
 }
+
+type MonthlyRateConfig = { mode: "flat"; amount: number } | { mode: "per_session" }
+type MonthlyRates = Record<string, MonthlyRateConfig> // key: "${year}-${month}" (0-based)
 
 async function apiFetch<T>(path: string, token: string, options?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -123,6 +126,9 @@ export default function PatientDetailPage() {
     const now = new Date()
     return new Set([`m-${now.getFullYear()}-${now.getMonth()}`])
   })
+  const [editingMonthRate, setEditingMonthRate] = useState<string | null>(null) // "year-month"
+  const [monthRateInput, setMonthRateInput] = useState("")
+  const [savingMonthRate, setSavingMonthRate] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -160,6 +166,38 @@ export default function PatientDetailPage() {
   }, [id, token])
 
   useEffect(() => { load() }, [load])
+
+  // Parse monthly rates stored in patient.case_summary JSON
+  const monthlyRates = useMemo<MonthlyRates>(() => {
+    if (!patient?.case_summary) return {}
+    try {
+      const obj = JSON.parse(patient.case_summary) as Record<string, unknown>
+      return (obj.monthly_rates as MonthlyRates) ?? {}
+    } catch { return {} }
+  }, [patient?.case_summary])
+
+  async function handleSetMonthlyRate(
+    year: number,
+    month: number,
+    mode: "flat" | "per_session",
+    amount?: number
+  ) {
+    if (!token) return
+    const rateKey = `${year}-${month}`
+    setSavingMonthRate(rateKey)
+    try {
+      await apiFetch(`/api/patients/${id}/monthly-rate`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ year, month, mode, amount }),
+      })
+      await load()
+    } catch (err) {
+      console.error("Error al guardar tarifa mensual:", err)
+    } finally {
+      setSavingMonthRate(null)
+      setEditingMonthRate(null)
+    }
+  }
 
   async function handleExport() {
     if (!token) return
@@ -359,7 +397,7 @@ export default function PatientDetailPage() {
 
 
       {/* Patient Metrics — clinical overview above reason */}
-      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} analysisTriggered={analysisTriggered} />
+      <PatientMetrics sessions={sessions} caseSummary={patient.case_summary} analysisTriggered={analysisTriggered} monthlyRates={monthlyRates} />
 
       {/* Evolution Chart */}
       <PatientEvolutionChart sessions={sessions} caseSummary={patient.case_summary} />
@@ -493,7 +531,9 @@ export default function PatientDetailPage() {
                   : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
               }`}
             >
-              {triggeringAnalysis ? "Iniciando..." : analysisTriggered ? "✅ Análisis en curso" : "✨ Analizar todo"}
+              {triggeringAnalysis ? (
+                <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Enviando a IA...</>
+              ) : analysisTriggered ? "✅ En proceso" : "✨ Analizar todo"}
             </button>
             {triggerMessage && (
               <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
@@ -590,6 +630,15 @@ export default function PatientDetailPage() {
                   const pendingInMonth = ss.filter((s) => !s.ai_summary && s.raw_text?.trim()).length
                   const isAnalyzing = analyzingMonth === `${year}-${month}`
                   const allAnalyzed = pendingInMonth === 0
+                  const rateKey = `${year}-${month}`
+                  const flatConfig = monthlyRates[rateKey] as ({ mode: "flat"; amount: number } | { mode: "per_session" }) | undefined
+                  const isFlat = flatConfig?.mode === "flat"
+                  const monthFeeTotal = isFlat
+                    ? (flatConfig as { mode: "flat"; amount: number }).amount
+                    : ss.reduce((sum, s) => sum + (s.fee ?? 0), 0)
+                  const hasFees = isFlat || ss.some((s) => s.fee != null)
+                  const isEditingRate = editingMonthRate === rateKey
+                  const isSavingRate = savingMonthRate === rateKey
 
                   return (
                     <div key={monthKey} className="rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden">
@@ -597,21 +646,88 @@ export default function PatientDetailPage() {
                       <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-slate-800/60">
                         <button
                           onClick={() => toggleKey(monthKey)}
-                          className="flex items-center gap-2 flex-1 text-left"
+                          className="flex items-center gap-2 flex-1 min-w-0 text-left"
                         >
                           <ChevronRight className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform flex-shrink-0 ${isOpen ? "rotate-90" : ""}`} />
                           <span className="text-sm font-semibold text-gray-700 dark:text-slate-200 capitalize">
                             {monthName} {year}
                           </span>
-                          <span className="text-xs text-gray-400 dark:text-slate-500">
+                          <span className="text-xs text-gray-400 dark:text-slate-500 whitespace-nowrap">
                             · {ss.length} {ss.length === 1 ? "sesión" : "sesiones"}
                           </span>
                           {pendingInMonth > 0 && (
-                            <span className="text-xs text-violet-500 dark:text-violet-400">
+                            <span className="text-xs text-violet-500 dark:text-violet-400 whitespace-nowrap">
                               · {pendingInMonth} sin analizar
                             </span>
                           )}
                         </button>
+
+                        {/* ── Precio del mes ── */}
+                        {isEditingRate ? (
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <span className="text-xs text-gray-500 dark:text-slate-400">$</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={monthRateInput}
+                              onChange={(e) => setMonthRateInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSetMonthlyRate(year, month, "flat", Number(monthRateInput))
+                                if (e.key === "Escape") setEditingMonthRate(null)
+                              }}
+                              autoFocus
+                              placeholder="monto"
+                              className="w-24 text-xs border border-emerald-300 dark:border-emerald-700 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                            />
+                            <button
+                              onClick={() => handleSetMonthlyRate(year, month, "flat", Number(monthRateInput))}
+                              disabled={isSavingRate}
+                              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 disabled:opacity-50 px-1"
+                            >
+                              {isSavingRate ? "..." : "✓"}
+                            </button>
+                            <button
+                              onClick={() => setEditingMonthRate(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 px-0.5"
+                            >✕</button>
+                          </div>
+                        ) : isFlat ? (
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2.5 py-1 rounded-lg">
+                              📌 ${(flatConfig as { mode: "flat"; amount: number }).amount.toLocaleString("es-AR")} fija
+                            </span>
+                            <button
+                              onClick={() => { setMonthRateInput(String((flatConfig as { mode: "flat"; amount: number }).amount)); setEditingMonthRate(rateKey) }}
+                              className="text-xs text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors px-0.5"
+                              title="Editar tarifa fija"
+                            >✎</button>
+                            <button
+                              onClick={() => handleSetMonthlyRate(year, month, "per_session")}
+                              disabled={isSavingRate}
+                              className="text-xs text-gray-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50 transition-colors px-0.5"
+                              title="Quitar tarifa fija"
+                            >✕</button>
+                          </div>
+                        ) : hasFees ? (
+                          <button
+                            onClick={() => { setMonthRateInput(String(monthFeeTotal)); setEditingMonthRate(rateKey) }}
+                            className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors flex-shrink-0 border border-gray-200 dark:border-slate-700 hover:border-emerald-300 dark:hover:border-emerald-700 px-2.5 py-1 rounded-lg"
+                            title="Fijar como tarifa mensual plana"
+                          >
+                            <span className="font-semibold">${monthFeeTotal.toLocaleString("es-AR")}</span>
+                            <span className="text-gray-300 dark:text-slate-600">·</span>
+                            <span>fijar</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setMonthRateInput(""); setEditingMonthRate(rateKey) }}
+                            className="text-xs text-gray-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors flex-shrink-0 border border-dashed border-gray-200 dark:border-slate-700 hover:border-emerald-300 px-2.5 py-1 rounded-lg"
+                            title="Agregar precio del mes"
+                          >
+                            + precio
+                          </button>
+                        )}
+
                         {/* Analizar mes button — always visible */}
                         <button
                           onClick={() => handleAnalyzeMonth(year, month)}
@@ -637,6 +753,7 @@ export default function PatientDetailPage() {
                               session={s}
                               token={token!}
                               onUpdate={load}
+                              disableFeeEdit={isFlat}
                               onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
                             />
                           ))}

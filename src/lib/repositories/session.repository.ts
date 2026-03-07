@@ -377,28 +377,67 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   }
   const sessions = allSessions ?? []
 
-  // Patient counts — direct COUNT queries, no data transfer
-  const { count: activeCount, error: activeErr } = await supabaseAdmin
-    .from("patients")
-    .select("id", { count: "exact", head: true })
-    .eq("psychologist_id", psychologistId)
-    .eq("is_active", true)
-
-  const { count: inactiveCount, error: inactiveErr } = await supabaseAdmin
-    .from("patients")
-    .select("id", { count: "exact", head: true })
-    .eq("psychologist_id", psychologistId)
-    .eq("is_active", false)
+  // Patient counts + case_summary for monthly rate configs — run in parallel
+  const [
+    { count: activeCount, error: activeErr },
+    { count: inactiveCount, error: inactiveErr },
+    { data: patientConfigs },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("patients")
+      .select("id", { count: "exact", head: true })
+      .eq("psychologist_id", psychologistId)
+      .eq("is_active", true),
+    supabaseAdmin
+      .from("patients")
+      .select("id", { count: "exact", head: true })
+      .eq("psychologist_id", psychologistId)
+      .eq("is_active", false),
+    supabaseAdmin
+      .from("patients")
+      .select("id, case_summary")
+      .eq("psychologist_id", psychologistId),
+  ])
 
   if (activeErr) console.error("[getPracticeStats] active patients query failed:", activeErr.message)
   if (inactiveErr) console.error("[getPracticeStats] inactive patients query failed:", inactiveErr.message)
 
+  // Build flat rate lookup: patient_id → month_key → amount
+  // month_key format: "${year}-${month}" (0-based, same as JS Date.getMonth())
+  const flatRates: Record<string, Record<string, number>> = {}
+  for (const p of patientConfigs ?? []) {
+    if (!p.case_summary) continue
+    try {
+      const obj = JSON.parse(p.case_summary) as Record<string, unknown>
+      const mr = obj.monthly_rates as Record<string, { mode: string; amount?: number }> | undefined
+      if (!mr) continue
+      flatRates[p.id] = {}
+      for (const [key, cfg] of Object.entries(mr)) {
+        if (cfg.mode === "flat" && cfg.amount != null) {
+          flatRates[p.id][key] = cfg.amount
+        }
+      }
+    } catch { /* ignore malformed */ }
+  }
+
   // "This month" = sessions created (imported or recorded) in the current calendar month.
   // Always use created_at so imported historical sessions appear in the month they were entered.
   const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
-  const income_this_month = thisMonthSessions
-    .filter((s) => s.paid)
-    .reduce((sum, s) => sum + (s.fee ?? 0), 0)
+
+  // Income this month: per patient, use flat rate if configured; else sum paid session fees
+  const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
+  const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
+  let income_this_month = 0
+  for (const patientId of patientIdsThisMonth) {
+    const flatAmount = flatRates[patientId]?.[currentMonthKey]
+    if (flatAmount != null) {
+      income_this_month += flatAmount
+    } else {
+      income_this_month += thisMonthSessions
+        .filter((s) => s.patient_id === patientId && s.paid)
+        .reduce((sum, s) => sum + (s.fee ?? 0), 0)
+    }
+  }
 
   // Estimate hours worked: audio_duration if recorded, otherwise assume 50 min per session
   const audio_hours_this_month =

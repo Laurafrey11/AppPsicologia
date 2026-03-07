@@ -66,9 +66,10 @@ interface Props {
   token: string
   onUpdate?: () => void
   onDelete?: (id: string) => void
+  disableFeeEdit?: boolean
 }
 
-export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
+export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit = false }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [paid, setPaid] = useState(session.paid)
   const [togglingPaid, setTogglingPaid] = useState(false)
@@ -419,14 +420,27 @@ export function SessionCard({ session, token, onUpdate, onDelete }: Props) {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-medium text-gray-500 dark:text-slate-400">Honorario ($)</label>
+                  <label className="text-xs font-medium text-gray-500 dark:text-slate-400">
+                    Honorario ($)
+                    {disableFeeEdit && (
+                      <span className="ml-1.5 text-xs font-normal text-emerald-600 dark:text-emerald-400">
+                        · tarifa mensual fija activa
+                      </span>
+                    )}
+                  </label>
                   <input
                     type="number"
                     min="0"
                     value={editFee}
-                    onChange={(e) => setEditFee(e.target.value)}
-                    placeholder="0"
-                    className="text-sm border border-gray-300 dark:border-slate-700 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:border-blue-400 dark:focus:border-blue-600 transition-colors w-32"
+                    onChange={(e) => !disableFeeEdit && setEditFee(e.target.value)}
+                    placeholder={disableFeeEdit ? "—" : "0"}
+                    disabled={disableFeeEdit}
+                    title={disableFeeEdit ? "Deshabilitado: este mes tiene tarifa mensual fija. Editá el precio desde el encabezado del mes." : undefined}
+                    className={`text-sm border rounded-lg px-3 py-2 focus:outline-none transition-colors w-32 ${
+                      disableFeeEdit
+                        ? "border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 text-gray-400 dark:text-slate-500 cursor-not-allowed"
+                        : "border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:border-blue-400 dark:focus:border-blue-600"
+                    }`}
                   />
                 </div>
                 <div className="flex flex-col gap-1 justify-end">

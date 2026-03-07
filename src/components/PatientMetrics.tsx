@@ -124,33 +124,42 @@ function MetricCard({ label, value, glowColor, emoji, pendingLabel }: MetricCard
   )
 }
 
-function calcFinancials(sessions: Session[]) {
+type MonthlyRateConfig = { mode: "flat"; amount: number } | { mode: "per_session" }
+type MonthlyRates = Record<string, MonthlyRateConfig>
+
+function calcFinancials(sessions: Session[], monthlyRates: MonthlyRates = {}) {
   const now = new Date()
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
 
-  const thisMonth = sessions.filter(
-    (s) => new Date(s.created_at) >= startOfMonth
-  )
-  const income = thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + (s.fee ?? 0), 0)
+  const thisMonth = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
+
+  const flatConfig = monthlyRates[currentMonthKey]
+  const income = flatConfig?.mode === "flat"
+    ? flatConfig.amount
+    : thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + (s.fee ?? 0), 0)
+
   const hoursWorked = thisMonth.reduce(
     (sum, s) => sum + (s.audio_duration != null ? s.audio_duration : 45),
     0
   ) / 60
-  return { sessionsThisMonth: thisMonth.length, income, hoursWorked }
+  return { sessionsThisMonth: thisMonth.length, income, isFlat: flatConfig?.mode === "flat", hoursWorked }
 }
 
 export function PatientMetrics({
   sessions,
   caseSummary,
   analysisTriggered,
+  monthlyRates = {},
 }: {
   sessions: Session[]
   caseSummary?: string | null
   analysisTriggered?: boolean
+  monthlyRates?: MonthlyRates
 }) {
   const summaries = sessions.map(s => parseAiSummary(s.ai_summary)).filter((s): s is AiSummary => s !== null)
   const adherence = calcAdherence(sessions)
-  const financials = calcFinancials(sessions)
+  const financials = calcFinancials(sessions, monthlyRates)
 
   if (sessions.length === 0) return null
 
@@ -228,10 +237,15 @@ export function PatientMetrics({
             <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{financials.sessionsThisMonth}</p>
           </div>
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
-            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Ingresos cobrados</p>
+            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+              {financials.isFlat ? "Tarifa mensual fija" : "Ingresos cobrados"}
+            </p>
             <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
               {financials.income > 0 ? `$${financials.income.toLocaleString("es-AR")}` : "—"}
             </p>
+            {financials.isFlat && (
+              <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">📌 Plana</p>
+            )}
           </div>
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4">
             <p className="text-xs font-semibold text-gray-400 dark:text-slate-500 uppercase tracking-wider mb-1">Horas trabajadas</p>
