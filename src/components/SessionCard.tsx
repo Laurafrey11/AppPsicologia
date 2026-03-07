@@ -64,12 +64,13 @@ const NOTE_LABELS: { key: keyof SessionNotes; label: string }[] = [
 interface Props {
   session: Session
   token: string
+  patientId?: string
   onUpdate?: () => void
   onDelete?: (id: string) => void
   disableFeeEdit?: boolean
 }
 
-export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit = false }: Props) {
+export function SessionCard({ session, token, patientId, onUpdate, onDelete, disableFeeEdit = false }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [paid, setPaid] = useState(session.paid)
   const [togglingPaid, setTogglingPaid] = useState(false)
@@ -273,16 +274,35 @@ export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit
     setAnalyzing(true)
     setAnalyzeError(null)
     try {
-      const res = await fetch(`/api/sessions/${session.id}/analyze`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setAnalyzeError(data.error ?? "Error al analizar")
-        return
+      // If we have patientId, use n8n webhook (fire-and-forget with polling)
+      if (patientId) {
+        const res = await fetch(`/api/patients/${patientId}/trigger-analysis`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ session_id: session.id }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setAnalyzeError(data.error ?? "Error al analizar")
+          return
+        }
+        // Poll for result since n8n is async
+        setTimeout(() => onUpdate?.(), 5_000)
+        setTimeout(() => onUpdate?.(), 15_000)
+        setTimeout(() => onUpdate?.(), 30_000)
+      } else {
+        // Fallback: direct OpenAI analysis
+        const res = await fetch(`/api/sessions/${session.id}/analyze`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setAnalyzeError(data.error ?? "Error al analizar")
+          return
+        }
+        onUpdate?.()
       }
-      onUpdate?.()
     } catch {
       setAnalyzeError("Error al analizar")
     } finally {
@@ -308,19 +328,29 @@ export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
 
-      {/* ── Analyze banner (visible without expanding the card) ── */}
-      {!session.ai_summary && session.raw_text?.trim() && (
-        <div className="flex items-center justify-between px-4 py-2 bg-violet-50 dark:bg-violet-950/30 border-b border-violet-200 dark:border-violet-800">
-          <span className="text-xs text-violet-600 dark:text-violet-300">
-            ✨ Esta sesión aún no tiene análisis.
+      {/* ── Analyze banner (always visible when session has text content) ── */}
+      {session.raw_text?.trim() && (
+        <div className={`flex items-center justify-between px-4 py-2 border-b ${
+          session.ai_summary
+            ? "bg-gray-50 dark:bg-slate-800/50 border-gray-100 dark:border-slate-700"
+            : "bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800"
+        }`}>
+          <span className={`text-xs ${session.ai_summary ? "text-gray-400 dark:text-slate-500" : "text-violet-600 dark:text-violet-300"}`}>
+            {session.ai_summary ? "Sesión analizada" : "✨ Esta sesión aún no tiene análisis."}
           </span>
           <button
             onClick={handleAnalyze}
             disabled={analyzing}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors"
+            className={`flex items-center gap-1.5 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors ${
+              session.ai_summary
+                ? "text-gray-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 border border-gray-200 dark:border-slate-700 hover:border-violet-300"
+                : "text-white bg-violet-600 hover:bg-violet-700"
+            }`}
           >
             {analyzing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" />Analizando...</>
+              <><Loader2 className="w-3 h-3 animate-spin" />Enviando...</>
+            ) : session.ai_summary ? (
+              <>Re-analizar</>
             ) : (
               <>Analizar ahora</>
             )}

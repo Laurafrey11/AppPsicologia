@@ -34,8 +34,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       )
     }
 
+    // Read optional session scope from body
+    const body = await req.json().catch(() => ({})) as {
+      session_id?: string
+      session_ids?: string[]
+    }
+
     // Fire-and-forget to n8n — only send IDs, never raw text
-    const payload = { patient_id: patientId, psychologist_id: user.id }
+    const payload: Record<string, unknown> = { patient_id: patientId, psychologist_id: user.id }
+    if (body.session_id) payload.session_id = body.session_id
+    if (body.session_ids?.length) payload.session_ids = body.session_ids
+
     const n8nRes = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

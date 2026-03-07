@@ -50,6 +50,22 @@ function topN(values: string[], n: number): string[] {
     .map(([v]) => v)
 }
 
+// Cleans n8n fields that may arrive as JSON array strings like ["Texto"] → "Texto"
+function cleanField(value: string | null | undefined): string | null {
+  const v = value?.trim()
+  if (!v) return null
+  if (v.startsWith("[")) {
+    try {
+      const arr = JSON.parse(v) as unknown[]
+      if (Array.isArray(arr)) {
+        const joined = arr.filter(Boolean).join(", ")
+        return joined || null
+      }
+    } catch { /* fall through */ }
+  }
+  return v
+}
+
 function calcAdherence(sessions: Session[]): {
   label: string
   color: string
@@ -60,18 +76,23 @@ function calcAdherence(sessions: Session[]): {
   const total = sessions.length
   if (total === 0) return { label: "Sin sesiones", color: "text-gray-400 dark:text-slate-500", avgDays: null, daysSinceLast: null, total: 0 }
 
-  const dates = sessions
+  // For avgDays: use session_date (actual therapy date) to compute real intervals
+  const therapyDates = sessions
     .map(s => new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at))
     .sort((a, b) => a.getTime() - b.getTime())
 
-  const lastDate = dates[dates.length - 1]
-  const daysSinceLast = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
+  // For daysSinceLast: use created_at (when the record was added) so imported historical
+  // sessions with old session_dates don't distort "last contact" metric
+  const lastCreated = sessions
+    .map(s => new Date(s.created_at))
+    .reduce((latest, d) => d > latest ? d : latest, new Date(0))
+  const daysSinceLast = Math.floor((Date.now() - lastCreated.getTime()) / (1000 * 60 * 60 * 24))
 
   let avgDays: number | null = null
-  if (dates.length >= 2) {
+  if (therapyDates.length >= 2) {
     const gaps: number[] = []
-    for (let i = 1; i < dates.length; i++) {
-      gaps.push((dates[i].getTime() - dates[i - 1].getTime()) / (1000 * 60 * 60 * 24))
+    for (let i = 1; i < therapyDates.length; i++) {
+      gaps.push((therapyDates[i].getTime() - therapyDates[i - 1].getTime()) / (1000 * 60 * 60 * 24))
     }
     avgDays = gaps.reduce((a, b) => a + b, 0) / gaps.length
   }
@@ -198,8 +219,8 @@ export function PatientMetrics({
   const ansiedadValue = patientData.anxiety_level != null
     ? `${patientData.anxiety_level}/10`
     : mostFrequentWithPct(pensamientos)
-  const mecanismoValue = patientData.main_defense_mechanisms?.trim() || mostFrequentWithPct(mecanismos)
-  const tematicaValue = patientData.primary_theme?.trim() || mostFrequentWithPct(tematicas)
+  const mecanismoValue = cleanField(patientData.main_defense_mechanisms) || mostFrequentWithPct(mecanismos)
+  const tematicaValue = cleanField(patientData.primary_theme) || mostFrequentWithPct(tematicas)
 
   const metrics: MetricCardProps[] = [
     { label: "Sentimiento", value: sentimientoValue, glowColor: "orange", emoji: "💛" },
@@ -242,25 +263,25 @@ export function PatientMetrics({
       </div>
 
       {/* Diagnóstico Presuntivo — from DB */}
-      {patientData.presumptive_diagnosis?.trim() && (
+      {cleanField(patientData.presumptive_diagnosis) && (
         <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-4">
           <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider mb-2">
             Diagnóstico Presuntivo
           </p>
           <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
-            {patientData.presumptive_diagnosis}
+            {cleanField(patientData.presumptive_diagnosis)}
           </p>
         </div>
       )}
 
       {/* Recomendaciones Terapéuticas — from DB */}
-      {patientData.therapeutic_recommendations?.trim() && (
+      {cleanField(patientData.therapeutic_recommendations) && (
         <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-xl p-4">
           <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-2">
             Recomendaciones Terapéuticas
           </p>
           <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
-            {patientData.therapeutic_recommendations}
+            {cleanField(patientData.therapeutic_recommendations)}
           </p>
         </div>
       )}

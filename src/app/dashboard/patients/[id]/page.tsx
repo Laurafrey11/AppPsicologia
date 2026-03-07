@@ -285,20 +285,23 @@ export default function PatientDetailPage() {
     }
   }
 
-  async function handleAnalyzeMonth(year: number, month: number) {
+  async function handleAnalyzeMonth(year: number, month: number, monthSessions: Session[]) {
     if (!token) return
     const key = `${year}-${month}`
     setAnalyzingMonth(key)
     try {
-      await apiFetch<{ analyzed: number }>(
-        `/api/patients/${id}/process-month`,
+      const sessionIds = monthSessions.map((s) => s.id)
+      await apiFetch<{ triggered: boolean }>(
+        `/api/patients/${id}/trigger-analysis`,
         token,
-        { method: "POST", body: JSON.stringify({ year, month }) }
+        { method: "POST", body: JSON.stringify({ session_ids: sessionIds }) }
       )
-      await load()
+      // n8n is async — poll for results
+      setTimeout(() => load(), 5_000)
+      setTimeout(() => load(), 15_000)
+      setTimeout(() => load(), 30_000)
     } catch {
-      // silently fail — load() will still run
-      await load()
+      // silently fail
     } finally {
       setAnalyzingMonth(null)
     }
@@ -552,18 +555,16 @@ export default function PatientDetailPage() {
             {/* Analizar todo — dispara n8n para procesar historial y llenar case_summary */}
             <button
               onClick={handleTriggerAnalysis}
-              disabled={triggeringAnalysis || analysisTriggered}
+              disabled={triggeringAnalysis}
               className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
-                analysisTriggered
-                  ? "border-violet-200 dark:border-violet-800 text-violet-400 dark:text-violet-500 cursor-default"
-                  : triggeringAnalysis
+                triggeringAnalysis
                   ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
                   : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
               }`}
             >
               {triggeringAnalysis ? (
                 <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Enviando a IA...</>
-              ) : analysisTriggered ? "✅ En proceso" : "✨ Analizar todo"}
+              ) : "✨ Analizar todo"}
             </button>
             {triggerMessage && (
               <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
@@ -615,6 +616,7 @@ export default function PatientDetailPage() {
                 key={s.id}
                 session={s}
                 token={token!}
+                patientId={id}
                 onUpdate={load}
                 onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
               />
@@ -758,19 +760,17 @@ export default function PatientDetailPage() {
                           </button>
                         )}
 
-                        {/* Analizar mes button — always visible */}
+                        {/* Analizar mes button — always enabled for re-analysis */}
                         <button
-                          onClick={() => handleAnalyzeMonth(year, month)}
-                          disabled={!!analyzingMonth || allAnalyzed}
+                          onClick={() => handleAnalyzeMonth(year, month, ss)}
+                          disabled={!!analyzingMonth}
                           className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
-                            allAnalyzed
-                              ? "border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-default"
-                              : isAnalyzing
+                            isAnalyzing
                               ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
                               : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
                           }`}
                         >
-                          {isAnalyzing ? "Analizando..." : allAnalyzed ? "Mes analizado ✅" : "✨ Analizar mes"}
+                          {isAnalyzing ? "Enviando..." : allAnalyzed ? "✨ Re-analizar mes" : "✨ Analizar mes"}
                         </button>
                       </div>
 
@@ -782,6 +782,7 @@ export default function PatientDetailPage() {
                               key={s.id}
                               session={s}
                               token={token!}
+                              patientId={id}
                               onUpdate={load}
                               disableFeeEdit={isFlat}
                               onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
