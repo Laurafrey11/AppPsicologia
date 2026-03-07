@@ -424,18 +424,21 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
   // Always use created_at so imported historical sessions appear in the month they were entered.
   const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
 
-  // Income this month: per patient, use flat rate if configured; else sum paid session fees
+  // Income this month: per patient, apply flat rate × session count OR sum paid fees
   const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
   const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
   let income_this_month = 0
   for (const patientId of patientIdsThisMonth) {
-    const flatAmount = flatRates[patientId]?.[currentMonthKey]
-    if (flatAmount != null) {
-      income_this_month += flatAmount
+    const flatRate = flatRates[patientId]?.[currentMonthKey]
+    const patientSessions = thisMonthSessions.filter((s) => s.patient_id === patientId)
+    if (flatRate != null) {
+      // Tarifa fija por sesión: rate × cantidad de sesiones del mes
+      income_this_month += Number(flatRate) * patientSessions.length
     } else {
-      income_this_month += thisMonthSessions
-        .filter((s) => s.patient_id === patientId && s.paid)
-        .reduce((sum, s) => sum + (s.fee ?? 0), 0)
+      // Sin tarifa fija: suma de fees individuales de sesiones pagadas
+      income_this_month += patientSessions
+        .filter((s) => s.paid)
+        .reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
     }
   }
 

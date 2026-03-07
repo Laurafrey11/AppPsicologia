@@ -136,8 +136,8 @@ function calcFinancials(sessions: Session[], monthlyRates: MonthlyRates = {}) {
 
   const flatConfig = monthlyRates[currentMonthKey]
   const income = flatConfig?.mode === "flat"
-    ? flatConfig.amount
-    : thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + (s.fee ?? 0), 0)
+    ? Number(flatConfig.amount) * thisMonth.length   // tarifa fija × cantidad de sesiones
+    : thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
 
   const hoursWorked = thisMonth.reduce(
     (sum, s) => sum + (s.audio_duration != null ? s.audio_duration : 45),
