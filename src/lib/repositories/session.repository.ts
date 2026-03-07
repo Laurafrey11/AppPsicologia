@@ -410,21 +410,27 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
     monthlyRateByPatient[p.id] = p.monthly_rate ?? null
   }
 
-  // "This month" = sessions created in the current calendar month (no payment filter)
-  const thisMonthSessions = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
+  // "This month" = sessions whose session_date (or created_at when null) falls in current month
+  const thisMonthSessions = sessions.filter((s) => {
+    const d = new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at)
+    return d >= startOfMonth
+  })
 
-  // Income this month:
-  //   Caso A: monthly_rate > 0  →  rate × sessions_count
-  //   Caso B: monthly_rate null/0 → sum of individual session fees
+  // Income this month — only paid sessions count:
+  //   Prioridad 1: monthly_rate > 0  →  rate × cantidad de sesiones pagadas del paciente
+  //   Prioridad 2: monthly_rate null/0 → suma de sessions.fee donde paid = true
+  const paidThisMonth = thisMonthSessions.filter((s) => s.paid)
   const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
   let income_this_month = 0
   for (const patientId of patientIdsThisMonth) {
     const rate = Number(monthlyRateByPatient[patientId] ?? 0)
-    const patientSessions = thisMonthSessions.filter((s) => s.patient_id === patientId)
+    const patientPaidSessions = paidThisMonth.filter((s) => s.patient_id === patientId)
     if (rate > 0) {
-      income_this_month += rate * patientSessions.length
+      // Tarifa fija × cantidad de sesiones pagadas
+      income_this_month += rate * patientPaidSessions.length
     } else {
-      income_this_month += patientSessions.reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
+      // Suma de honorarios individuales, solo los pagados
+      income_this_month += patientPaidSessions.reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
     }
   }
 
