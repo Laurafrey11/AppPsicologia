@@ -147,7 +147,7 @@ export function ImportSessionsModal({ patientId, token, onClose, onImported }: P
       const data = await res.json()
       if (!res.ok) { setParseError(data.error ?? `Error HTTP ${res.status}`); return }
       setResult(data)
-      if (data.imported > 0) onImported()
+      if (data.imported > 0) { onImported(); onClose() }
     } catch (err) {
       const msg = (err as Error).message ?? ""
       if (
