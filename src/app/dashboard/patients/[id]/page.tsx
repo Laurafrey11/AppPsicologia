@@ -178,6 +178,14 @@ export default function PatientDetailPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Auto-reset analysisTriggered when a new session without ai_summary is detected
+  useEffect(() => {
+    if (analysisTriggered && sessions.some((s) => !s.ai_summary && s.raw_text?.trim())) {
+      setAnalysisTriggered(false)
+      setTriggerMessage(null)
+    }
+  }, [sessions, analysisTriggered])
+
   // Parse monthly rates stored in patient.case_summary JSON
   const monthlyRates = useMemo<MonthlyRates>(() => {
     if (!patient?.case_summary) return {}
@@ -561,40 +569,41 @@ export default function PatientDetailPage() {
                 {markingAllPaid ? "Marcando..." : "Marcar todas como pagas"}
               </button>
             )}
-            {/* Analizar todo — dispara n8n para procesar historial y llenar case_summary */}
+            {/* Analizar todo — único botón para disparar n8n */}
             {(() => {
-              // Re-enables ONLY when a new session without ai_summary is detected
               const hasUnanalyzed = sessions.some((s) => !s.ai_summary && s.raw_text?.trim())
               const isFullyAnalyzed = sessions.length > 0 && !hasUnanalyzed
-              // analysisTriggered keeps it disabled after firing, until new session arrives
-              const isDisabled = triggeringAnalysis || (analysisTriggered && !hasUnanalyzed) || isFullyAnalyzed
+              // Disabled: mientras se envía, o mientras se espera n8n y no hay sesión nueva
+              const isDisabled = triggeringAnalysis || isFullyAnalyzed || analysisTriggered
+              // "Analizado" state: n8n terminó y todos los ai_summary están completos
+              const showAnalyzed = analysisTriggered && isFullyAnalyzed
+
               return (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleTriggerAnalysis}
                     disabled={isDisabled}
-                    title={isFullyAnalyzed ? "Todo analizado. Agregá una nueva sesión para habilitar." : undefined}
+                    title={isFullyAnalyzed ? "Agregá una nueva sesión para volver a analizar." : undefined}
                     className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
-                      isFullyAnalyzed || analysisTriggered
+                      showAnalyzed
+                        ? "border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 cursor-default"
+                        : isDisabled
                         ? "border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed"
-                        : triggeringAnalysis
-                        ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
                         : "border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30"
                     }`}
                   >
                     {triggeringAnalysis ? (
-                      <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Enviando a IA...</>
-                    ) : "✨ Analizar todo"}
+                      <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Enviando…</>
+                    ) : showAnalyzed ? (
+                      <>✓ Analizado</>
+                    ) : analysisTriggered ? (
+                      <>⏳ En proceso…</>
+                    ) : (
+                      <>✨ Analizar todo</>
+                    )}
                   </button>
-                  {isFullyAnalyzed && !analysisTriggered && (
-                    <span className="text-xs text-gray-400 dark:text-slate-500 italic">
-                      Todo analizado. Agregá una nueva sesión para habilitar.
-                    </span>
-                  )}
-                  {triggerMessage && !isFullyAnalyzed && (
-                    <p className={`text-xs ${triggerMessage.startsWith("Error") ? "text-red-500 dark:text-red-400" : "text-violet-600 dark:text-violet-400"}`}>
-                      {triggerMessage}
-                    </p>
+                  {triggerMessage?.startsWith("Error") && (
+                    <p className="text-xs text-red-500 dark:text-red-400">{triggerMessage}</p>
                   )}
                 </div>
               )
