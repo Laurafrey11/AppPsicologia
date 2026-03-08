@@ -290,14 +290,17 @@ export default function PatientDetailPage() {
     setTriggerMessage(null)
     try {
       await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
+      // Disable button immediately after n8n confirms receipt
       setAnalysisTriggered(true)
       setTriggerMessage("Análisis iniciado. Actualizando datos automáticamente…")
-      // n8n procesa de forma asíncrona — recargamos a 5s, 15s y 30s para capturar el resultado
+      // n8n procesa de forma asíncrona — recargamos a 5s, 15s y 30s
       setTimeout(() => load(), 5_000)
       setTimeout(() => load(), 15_000)
-      setTimeout(() => { load(); setAnalysisTriggered(false) }, 30_000)
+      // After final poll, reset analysisTriggered — button state now depends on actual data
+      setTimeout(() => { load().then(() => setAnalysisTriggered(false)) }, 30_000)
     } catch (err: unknown) {
       setTriggerMessage(`Error: ${(err as Error).message}`)
+      setAnalysisTriggered(false)
     } finally {
       setTriggeringAnalysis(false)
     }
@@ -531,17 +534,17 @@ export default function PatientDetailPage() {
             )}
             {/* Analizar todo — dispara n8n para procesar historial y llenar case_summary */}
             {(() => {
-              const allSessionsAnalyzed = sessions.length > 0 && sessions.every((s) => !!s.ai_summary)
-              const metricsComplete = patient.sentiment_score != null && patient.anxiety_level != null
-              const isFullyAnalyzed = allSessionsAnalyzed && metricsComplete
+              // Disabled when: sending, already triggered (waiting for n8n), or all sessions have ai_summary
+              const isFullyAnalyzed = sessions.length > 0 && sessions.every((s) => !!s.ai_summary)
+              const isDisabled = triggeringAnalysis || analysisTriggered || isFullyAnalyzed
               return (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleTriggerAnalysis}
-                    disabled={triggeringAnalysis || isFullyAnalyzed}
+                    disabled={isDisabled}
                     title={isFullyAnalyzed ? "Todo analizado. Agregá una nueva sesión para habilitar." : undefined}
                     className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border flex-shrink-0 transition-colors ${
-                      isFullyAnalyzed
+                      isFullyAnalyzed || analysisTriggered
                         ? "border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500 cursor-not-allowed"
                         : triggeringAnalysis
                         ? "border-violet-300 dark:border-violet-700 text-violet-500 dark:text-violet-400 animate-pulse cursor-default"
@@ -552,7 +555,7 @@ export default function PatientDetailPage() {
                       <><svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>Enviando a IA...</>
                     ) : "✨ Analizar todo"}
                   </button>
-                  {isFullyAnalyzed && (
+                  {isFullyAnalyzed && !analysisTriggered && (
                     <span className="text-xs text-gray-400 dark:text-slate-500 italic">
                       Todo analizado. Agregá una nueva sesión para habilitar.
                     </span>

@@ -124,16 +124,16 @@ interface MetricCardProps {
 function MetricCard({ label, value, glowColor, emoji, pendingLabel }: MetricCardProps) {
   const isProcessing = !value && pendingLabel?.includes("n8n")
   return (
-    <GlowCard customSize glowColor={glowColor} className="w-full h-28 bg-white/90 dark:bg-slate-800/90">
+    <GlowCard customSize glowColor={glowColor} className="w-full min-h-24 bg-white/90 dark:bg-slate-800/90">
       <Spotlight
         className="from-white via-zinc-100 to-zinc-200 dark:from-blue-900 dark:via-blue-700 dark:to-blue-900"
         size={110}
       />
-      <div className="relative z-10 flex flex-col justify-between h-full p-1">
+      <div className="relative z-10 flex flex-col gap-2 p-1">
         <span className="text-lg">{emoji}</span>
         <div>
           <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
-          <p className="text-sm font-bold text-gray-900 dark:text-slate-100 leading-snug">
+          <p className="text-sm font-bold text-gray-900 dark:text-slate-100 leading-snug break-words">
             {value ?? (
               <span className={`text-xs font-normal italic ${isProcessing ? "text-violet-500 dark:text-violet-400 animate-pulse" : "text-gray-400 dark:text-slate-500"}`}>
                 {pendingLabel ?? "Pendiente de análisis"}
