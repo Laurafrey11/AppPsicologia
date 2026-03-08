@@ -145,6 +145,7 @@ export async function updatePatient(
     case_summary?: string
     recording_consent_at?: string | null
     historical_import_done?: boolean
+    monthly_rate?: number | null
   }
 ): Promise<Patient> {
   const { data: patient, error } = await supabaseAdmin
