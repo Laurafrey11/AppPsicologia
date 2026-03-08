@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { createSupabaseBrowserClient } from "@/lib/supabase/client"
 import { SessionCard } from "@/components/SessionCard"
@@ -105,6 +105,8 @@ export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>()
   const supabase = createSupabaseBrowserClient()
   const router = useRouter()
+
+  const pollingActiveRef = useRef(false) // prevents double-polling
 
   const [patient, setPatient] = useState<Patient | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -287,35 +289,49 @@ export default function PatientDetailPage() {
   }
 
   async function handleTriggerAnalysis() {
-    if (!token) return
+    if (!token || pollingActiveRef.current) return
     setTriggeringAnalysis(true)
     setTriggerMessage(null)
     try {
       await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
       setAnalysisTriggered(true)
       setTriggerMessage("Análisis en curso…")
+      pollingActiveRef.current = true
 
-      // Polling inteligente: carga y verifica; se detiene cuando detecta todo completo
-      const pollUntilDone = async (delayMs: number, attemptsLeft: number) => {
-        await new Promise<void>((r) => setTimeout(r, delayMs))
-        const loaded = await load()
-        const allDone = loaded.length > 0 && loaded.every((s) => !!s.ai_summary)
-        if (allDone) {
+      // Silent fetch — does NOT set loading spinner, no re-render loop
+      const silentFetch = async (): Promise<Session[]> => {
+        try {
+          const data = await apiFetch<{ patient: Patient; sessions: Session[] }>(`/api/patients/${id}`, token!)
+          setPatient(data.patient)
+          setSessions(data.sessions)
+          return data.sessions
+        } catch { return [] }
+      }
+
+      // Sequential polling at 10s, 20s, 40s — stops immediately when all ai_summary filled
+      const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+      let done = false
+      for (const delay of [10_000, 20_000, 40_000]) {
+        if (done) break
+        await wait(delay)
+        const fetched = await silentFetch()
+        if (fetched.length > 0 && fetched.every((s) => !!s.ai_summary)) {
+          done = true
           setTriggerMessage(null)
-          // analysisTriggered permanece true — botón solo se re-habilita con nueva sesión
-        } else if (attemptsLeft > 1) {
-          pollUntilDone(delayMs * 2, attemptsLeft - 1)
-        } else {
-          setAnalysisTriggered(false) // tiempo agotado — re-habilitar para reintento
-          setTriggerMessage(null)
+          // analysisTriggered stays true — button re-enables only when new session (no ai_summary) detected
         }
       }
-      pollUntilDone(10_000, 3) // intenta a 10s, 20s, 40s — para en cuanto detecta completado
+      if (!done) {
+        // Max attempts reached — reset so user can retry
+        setAnalysisTriggered(false)
+        setTriggerMessage(null)
+      }
     } catch (err: unknown) {
       setTriggerMessage(`Error: ${(err as Error).message}`)
       setAnalysisTriggered(false)
     } finally {
       setTriggeringAnalysis(false)
+      pollingActiveRef.current = false
     }
   }
 
