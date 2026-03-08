@@ -64,13 +64,12 @@ const NOTE_LABELS: { key: keyof SessionNotes; label: string }[] = [
 interface Props {
   session: Session
   token: string
-  patientId?: string
   onUpdate?: () => void
   onDelete?: (id: string) => void
   disableFeeEdit?: boolean
 }
 
-export function SessionCard({ session, token, patientId, onUpdate, onDelete, disableFeeEdit = false }: Props) {
+export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit = false }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [paid, setPaid] = useState(session.paid)
   const [togglingPaid, setTogglingPaid] = useState(false)
@@ -101,10 +100,6 @@ export function SessionCard({ session, token, patientId, onUpdate, onDelete, dis
   // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
-
-  // AI analyze state (for sessions imported without summary)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analyzeError, setAnalyzeError] = useState<string | null>(null)
 
   // Local display overrides (updated on save without waiting for reload)
   const [localText, setLocalText] = useState(session.raw_text)
@@ -270,46 +265,6 @@ export function SessionCard({ session, token, patientId, onUpdate, onDelete, dis
     } catch { /* silently fail */ }
   }
 
-  async function handleAnalyze() {
-    setAnalyzing(true)
-    setAnalyzeError(null)
-    try {
-      // If we have patientId, use n8n webhook (fire-and-forget with polling)
-      if (patientId) {
-        const res = await fetch(`/api/patients/${patientId}/trigger-analysis`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ session_id: session.id }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          setAnalyzeError(data.error ?? "Error al analizar")
-          return
-        }
-        // Poll for result since n8n is async
-        setTimeout(() => onUpdate?.(), 5_000)
-        setTimeout(() => onUpdate?.(), 15_000)
-        setTimeout(() => onUpdate?.(), 30_000)
-      } else {
-        // Fallback: direct OpenAI analysis
-        const res = await fetch(`/api/sessions/${session.id}/analyze`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          setAnalyzeError(data.error ?? "Error al analizar")
-          return
-        }
-        onUpdate?.()
-      }
-    } catch {
-      setAnalyzeError("Error al analizar")
-    } finally {
-      setAnalyzing(false)
-    }
-  }
-
   // Use local overrides so edits are reflected immediately
   const displayDate = localDate
     ? new Date(localDate + "T12:00:00").toLocaleDateString("es-AR", {
@@ -328,33 +283,11 @@ export function SessionCard({ session, token, patientId, onUpdate, onDelete, dis
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
 
-      {/* ── Analyze banner: only for sessions without ai_summary ── */}
+      {/* Pending analysis indicator — informational only, no action button */}
       {!session.ai_summary && session.raw_text?.trim() && (
-        <div className="flex items-center justify-between px-4 py-2 bg-violet-50 dark:bg-violet-950/30 border-b border-violet-200 dark:border-violet-800">
-          <span className="text-xs text-violet-600 dark:text-violet-300">
-            ✨ Esta sesión aún no tiene análisis.
-          </span>
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed px-3 py-1 rounded-md transition-colors"
-          >
-            {analyzing ? (
-              <><Loader2 className="w-3 h-3 animate-spin" />Enviando...</>
-            ) : (
-              <>Analizar ahora</>
-            )}
-          </button>
+        <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900">
+          <span className="text-xs text-amber-600 dark:text-amber-400">Pendiente de análisis IA</span>
         </div>
-      )}
-      {/* ── Already analyzed indicator ── */}
-      {session.ai_summary && (
-        <div className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 border-b border-emerald-100 dark:border-emerald-900">
-          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Analizada</span>
-        </div>
-      )}
-      {analyzeError && (
-        <p className="px-5 py-1 text-xs text-red-500 bg-red-50 dark:bg-red-950/20">{analyzeError}</p>
       )}
 
       <button

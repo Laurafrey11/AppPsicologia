@@ -616,7 +616,6 @@ export default function PatientDetailPage() {
                 key={s.id}
                 session={s}
                 token={token!}
-                patientId={id}
                 onUpdate={load}
                 onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
               />
@@ -768,7 +767,6 @@ export default function PatientDetailPage() {
                               key={s.id}
                               session={s}
                               token={token!}
-                              patientId={id}
                               onUpdate={load}
                               disableFeeEdit={isFlat}
                               onDelete={(sessionId) => setSessions((prev) => prev.filter((x) => x.id !== sessionId))}
