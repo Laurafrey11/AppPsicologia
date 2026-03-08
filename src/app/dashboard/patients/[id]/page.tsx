@@ -290,14 +290,15 @@ export default function PatientDetailPage() {
     setTriggerMessage(null)
     try {
       await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
-      // Disable button immediately after n8n confirms receipt
+      // Disabled immediately after n8n confirms receipt — stays disabled until data shows new session
       setAnalysisTriggered(true)
-      setTriggerMessage("Análisis iniciado. Actualizando datos automáticamente…")
-      // n8n procesa de forma asíncrona — recargamos a 5s, 15s y 30s
+      setTriggerMessage("Análisis en curso…")
+      // Poll para capturar resultados cuando n8n termine
       setTimeout(() => load(), 5_000)
       setTimeout(() => load(), 15_000)
-      // After final poll, reset analysisTriggered — button state now depends on actual data
-      setTimeout(() => { load().then(() => setAnalysisTriggered(false)) }, 30_000)
+      setTimeout(() => load(), 30_000)
+      // analysisTriggered se mantiene en true — el botón solo se re-habilita si
+      // load() trae una nueva sesión sin ai_summary (isFullyAnalyzed pasa a false)
     } catch (err: unknown) {
       setTriggerMessage(`Error: ${(err as Error).message}`)
       setAnalysisTriggered(false)
@@ -534,9 +535,11 @@ export default function PatientDetailPage() {
             )}
             {/* Analizar todo — dispara n8n para procesar historial y llenar case_summary */}
             {(() => {
-              // Disabled when: sending, already triggered (waiting for n8n), or all sessions have ai_summary
-              const isFullyAnalyzed = sessions.length > 0 && sessions.every((s) => !!s.ai_summary)
-              const isDisabled = triggeringAnalysis || analysisTriggered || isFullyAnalyzed
+              // Re-enables ONLY when a new session without ai_summary is detected
+              const hasUnanalyzed = sessions.some((s) => !s.ai_summary && s.raw_text?.trim())
+              const isFullyAnalyzed = sessions.length > 0 && !hasUnanalyzed
+              // analysisTriggered keeps it disabled after firing, until new session arrives
+              const isDisabled = triggeringAnalysis || (analysisTriggered && !hasUnanalyzed) || isFullyAnalyzed
               return (
                 <div className="flex items-center gap-2">
                   <button

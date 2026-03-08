@@ -154,12 +154,17 @@ function calcFinancials(sessions: Session[], monthlyRates: MonthlyRates = {}) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
   const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
 
-  const thisMonth = sessions.filter((s) => new Date(s.created_at) >= startOfMonth)
+  // Use session_date when available, fallback to created_at (same as getPracticeStats)
+  const thisMonth = sessions.filter((s) => {
+    const d = new Date(s.session_date ? s.session_date + "T12:00:00" : s.created_at)
+    return d >= startOfMonth
+  })
+  const paidThisMonth = thisMonth.filter((s) => s.paid)
 
   const flatConfig = monthlyRates[currentMonthKey]
   const income = flatConfig?.mode === "flat"
-    ? Number(flatConfig.amount) * thisMonth.length   // tarifa fija × cantidad de sesiones
-    : thisMonth.filter((s) => s.paid).reduce((sum, s) => sum + Number(s.fee ?? 0), 0)
+    ? (Number(flatConfig.amount) || 0) * paidThisMonth.length  // tarifa fija × sesiones pagas
+    : paidThisMonth.reduce((sum, s) => sum + (Number(s.fee ?? 0) || 0), 0)
 
   const hoursWorked = thisMonth.reduce(
     (sum, s) => sum + (s.audio_duration != null ? s.audio_duration : 45),
