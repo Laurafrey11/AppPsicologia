@@ -283,12 +283,6 @@ export function SessionCard({ session, token, onUpdate, onDelete, disableFeeEdit
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 overflow-hidden transition-all hover:border-blue-200 hover:shadow-[0_0_20px_-6px_rgba(59,130,246,0.35)] dark:hover:border-slate-700">
 
-      {/* Pending analysis indicator — informational only, no action button */}
-      {!session.ai_summary && session.raw_text?.trim() && (
-        <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-900">
-          <span className="text-xs text-amber-600 dark:text-amber-400">Pendiente de análisis IA</span>
-        </div>
-      )}
 
       <button
         onClick={() => setExpanded((v) => !v)}

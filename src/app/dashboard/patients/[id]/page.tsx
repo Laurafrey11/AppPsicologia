@@ -154,8 +154,8 @@ export default function PatientDetailPage() {
     })
   }, [supabase])
 
-  const load = useCallback(async () => {
-    if (!token) return
+  const load = useCallback(async (): Promise<Session[]> => {
+    if (!token) return []
     setLoading(true)
     setError(null)
     try {
@@ -165,8 +165,10 @@ export default function PatientDetailPage() {
       )
       setPatient(data.patient)
       setSessions(data.sessions)
+      return data.sessions
     } catch (err: unknown) {
       setError((err as Error).message)
+      return []
     } finally {
       setLoading(false)
     }
@@ -290,15 +292,25 @@ export default function PatientDetailPage() {
     setTriggerMessage(null)
     try {
       await apiFetch<{ triggered: boolean }>(`/api/patients/${id}/trigger-analysis`, token, { method: "POST" })
-      // Disabled immediately after n8n confirms receipt — stays disabled until data shows new session
       setAnalysisTriggered(true)
       setTriggerMessage("Análisis en curso…")
-      // Poll para capturar resultados cuando n8n termine
-      setTimeout(() => load(), 5_000)
-      setTimeout(() => load(), 15_000)
-      setTimeout(() => load(), 30_000)
-      // analysisTriggered se mantiene en true — el botón solo se re-habilita si
-      // load() trae una nueva sesión sin ai_summary (isFullyAnalyzed pasa a false)
+
+      // Polling inteligente: carga y verifica; se detiene cuando detecta todo completo
+      const pollUntilDone = async (delayMs: number, attemptsLeft: number) => {
+        await new Promise<void>((r) => setTimeout(r, delayMs))
+        const loaded = await load()
+        const allDone = loaded.length > 0 && loaded.every((s) => !!s.ai_summary)
+        if (allDone) {
+          setTriggerMessage(null)
+          // analysisTriggered permanece true — botón solo se re-habilita con nueva sesión
+        } else if (attemptsLeft > 1) {
+          pollUntilDone(delayMs * 2, attemptsLeft - 1)
+        } else {
+          setAnalysisTriggered(false) // tiempo agotado — re-habilitar para reintento
+          setTriggerMessage(null)
+        }
+      }
+      pollUntilDone(10_000, 3) // intenta a 10s, 20s, 40s — para en cuanto detecta completado
     } catch (err: unknown) {
       setTriggerMessage(`Error: ${(err as Error).message}`)
       setAnalysisTriggered(false)

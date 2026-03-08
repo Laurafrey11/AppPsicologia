@@ -397,34 +397,13 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
       .eq("historical_import_done", false),
     supabaseAdmin
       .from("patients")
-      .select("id, monthly_rate, case_summary")
+      .select("id")
       .eq("psychologist_id", psychologistId),
   ])
 
   if (activeErr) console.error("[getPracticeStats] active patients query failed:", activeErr.message)
   if (inactiveErr) console.error("[getPracticeStats] inactive patients query failed:", inactiveErr.message)
 
-  // Build monthly_rate lookup: patient_id → rate
-  // Priority 1: patients.monthly_rate (direct column, set via price badge)
-  // Priority 2: case_summary.monthly_rates[currentMonthKey] (legacy JSON storage)
-  const currentMonthKey = `${now.getFullYear()}-${now.getMonth()}`
-  const monthlyRateByPatient: Record<string, number> = {}
-  for (const p of patientRows ?? []) {
-    const directRate = Number(p.monthly_rate ?? 0) || 0
-    if (directRate > 0) {
-      monthlyRateByPatient[p.id] = directRate
-    } else if (p.case_summary) {
-      // Fallback: read from case_summary JSON (for data saved before the column existed)
-      try {
-        const csObj = JSON.parse(p.case_summary as string) as Record<string, unknown>
-        const monthlyRates = csObj.monthly_rates as Record<string, { mode: string; amount?: number }> | undefined
-        const monthConfig = monthlyRates?.[currentMonthKey]
-        if (monthConfig?.mode === "flat" && monthConfig.amount) {
-          monthlyRateByPatient[p.id] = Number(monthConfig.amount) || 0
-        }
-      } catch { /* ignore malformed JSON */ }
-    }
-  }
 
   // "This month" = sessions whose session_date (or created_at when null) falls in current month
   const thisMonthSessions = sessions.filter((s) => {
@@ -432,26 +411,11 @@ export async function getPracticeStats(psychologistId: string): Promise<Practice
     return d >= startOfMonth
   })
 
-  // Income this month — only paid sessions count:
-  //   Prioridad 1: monthly_rate > 0  →  rate × cantidad de sesiones pagadas del paciente
-  //   Prioridad 2: monthly_rate null/0 → suma de sessions.fee donde paid = true
-  const paidThisMonth = thisMonthSessions.filter((s) => s.paid)
-  const patientIdsThisMonth = new Set(thisMonthSessions.map((s) => s.patient_id))
-  let income_this_month = 0
-  for (const patientId of patientIdsThisMonth) {
-    const rate = Number(monthlyRateByPatient[patientId] ?? 0) || 0
-    const patientPaidSessions = paidThisMonth.filter((s) => s.patient_id === patientId)
-    if (rate > 0) {
-      // Tarifa fija × cantidad de sesiones pagadas
-      income_this_month += rate * patientPaidSessions.length
-    } else {
-      // Suma de honorarios individuales, solo los pagados
-      income_this_month += patientPaidSessions.reduce(
-        (sum, s) => sum + (Number(s.fee ?? 0) || 0),
-        0
-      )
-    }
-  }
+  // Income this month = SUM(sessions.fee WHERE paid = true)
+  // The fee column is the single source of truth — set directly or via the monthly rate cascade
+  const income_this_month = thisMonthSessions
+    .filter((s) => s.paid)
+    .reduce((sum, s) => sum + (Number(s.fee ?? 0) || 0), 0)
 
   // Estimate hours worked: audio_duration if recorded, otherwise assume 50 min per session
   const audio_hours_this_month =

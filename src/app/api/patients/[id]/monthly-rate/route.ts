@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAuthUser } from "@/lib/auth/get-user"
 import { findPatientById, updatePatient } from "@/lib/repositories/patient.repository"
+import { supabaseAdmin } from "@/lib/supabase-admin"
 import { BaseError } from "@/lib/errors/BaseError"
 import { logger } from "@/lib/logger/logger"
 
@@ -55,14 +56,39 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     }
     caseSummaryObj.monthly_rates = monthlyRates
 
-    // 2. Also persist to patients.monthly_rate (numeric column) for dashboard income calc
-    //    "per_session" clears it (null); "flat" sets the numeric value
+    // 2. Persist to patients.monthly_rate (numeric column)
     const newMonthlyRate = mode === "flat" ? Number(amount) : null
 
     await updatePatient(patientId, user.id, {
       case_summary: JSON.stringify(caseSummaryObj),
       monthly_rate: newMonthlyRate,
     })
+
+    // 3. Cascade: update fee on all sessions belonging to this month for this patient
+    //    This ensures Dashboard SUM(fee WHERE paid) reflects the rate immediately
+    if (mode === "flat" && amount != null) {
+      const monthStart = new Date(year, month, 1).toISOString()
+      const monthEnd = new Date(year, month + 1, 1).toISOString()
+
+      // Sessions with explicit session_date in the month
+      await supabaseAdmin
+        .from("sessions")
+        .update({ fee: Number(amount) })
+        .eq("patient_id", patientId)
+        .eq("psychologist_id", user.id)
+        .gte("session_date", monthStart.slice(0, 10))
+        .lt("session_date", monthEnd.slice(0, 10))
+
+      // Sessions without session_date — use created_at
+      await supabaseAdmin
+        .from("sessions")
+        .update({ fee: Number(amount) })
+        .eq("patient_id", patientId)
+        .eq("psychologist_id", user.id)
+        .is("session_date", null)
+        .gte("created_at", monthStart)
+        .lt("created_at", monthEnd)
+    }
 
     logger.info("monthly-rate updated", { patientId, rateKey, mode, amount: newMonthlyRate })
     return NextResponse.json({ ok: true })
